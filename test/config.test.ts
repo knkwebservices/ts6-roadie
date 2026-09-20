@@ -10,7 +10,8 @@ test('defaults fill in what config.json leaves out', () => {
   assert.equal(c.server.address, 'ts.example.com');
   assert.equal(c.prefix, '!');
   assert.equal(c.audio.codec, 5);
-  assert.deepEqual(c.cogs, ['core', 'audio']);
+  assert.deepEqual(c.cogs, ['core', 'audio', 'avatar']);
+  assert.deepEqual(c.avatar, { file: '', applyOnConnect: true });
   assert.ok(Object.keys(c.audio.radioStations).length > 0);
 });
 
@@ -64,6 +65,12 @@ test('missing or broken config gives a helpful error', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('avatar settings are validated', () => {
+  assert.throws(() => buildConfig({ avatar: { file: 5 } }), /avatar\.file/);
+  assert.throws(() => buildConfig({ avatar: { applyOnConnect: 'yes' } }), /applyOnConnect/);
+  assert.equal(buildConfig({ avatar: { file: 'mine.png', applyOnConnect: false } }).avatar.file, 'mine.png');
 });
 
 test('config.example.json is itself valid', () => {

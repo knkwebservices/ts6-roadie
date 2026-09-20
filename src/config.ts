@@ -33,6 +33,12 @@ export interface Config {
   /** Cogs to load at start-up, in order. */
   cogs: string[];
   logLevel: Level;
+  avatar: {
+    /** Image to use as the bot's avatar. Empty = the bundled Roadie icon. A relative path is relative to the data folder. */
+    file: string;
+    /** Set the avatar automatically each time the bot connects (skipped if the server already shows it). */
+    applyOnConnect: boolean;
+  };
   follow: {
     /** After the queue empties, return to the home channel after this many seconds. */
     idleReturnSeconds: number;
@@ -70,8 +76,9 @@ export const DEFAULT_CONFIG: Config = {
   prefix: '!',
   admins: [],
   privilegeKey: '',
-  cogs: ['core', 'audio'],
+  cogs: ['core', 'audio', 'avatar'],
   logLevel: 'info',
+  avatar: { file: '', applyOnConnect: true },
   follow: { idleReturnSeconds: 120, aloneLeaveSeconds: 60 },
   audio: {
     defaultVolume: 50,
@@ -151,6 +158,8 @@ export function validateConfig(c: Config): Config {
   need(Array.isArray(c.admins) && c.admins.every((a) => typeof a === 'string'), 'admins must be an array of unique-ID strings');
   need(Array.isArray(c.cogs) && c.cogs.includes('core'), 'cogs must include "core"');
   need(['debug', 'info', 'warn', 'error'].includes(c.logLevel), 'logLevel must be debug, info, warn or error');
+  need(typeof c.avatar.file === 'string', 'avatar.file must be a string (a path, or empty for the bundled icon)');
+  need(typeof c.avatar.applyOnConnect === 'boolean', 'avatar.applyOnConnect must be true or false');
   need(c.audio.defaultVolume >= 0 && c.audio.defaultVolume <= 100, 'audio.defaultVolume must be 0-100');
   need(c.audio.bitrate >= 8000 && c.audio.bitrate <= 256_000, 'audio.bitrate must be 8000-256000');
   need(c.audio.codec === 4 || c.audio.codec === 5, 'audio.codec must be 4 or 5');

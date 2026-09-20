@@ -31,6 +31,11 @@ export class FakeAdapter implements TsAdapter {
   failMove: Error | undefined;
   privilegeKeys: string[] = [];
   started = false;
+  avatarCalls: { bytes: Buffer; force: boolean }[] = [];
+  avatarError: Error | undefined;
+  avatarStatus: 'uploaded' | 'unchanged' = 'uploaded';
+  avatarCleared = 0;
+  clearError: Error | undefined;
 
   start() {
     this.started = true;
@@ -76,6 +81,15 @@ export class FakeAdapter implements TsAdapter {
   }
   async usePrivilegeKey(token: string) {
     this.privilegeKeys.push(token);
+  }
+  async setAvatar(image: Buffer, opts: { force?: boolean } = {}) {
+    this.avatarCalls.push({ bytes: image, force: !!opts.force });
+    if (this.avatarError) throw this.avatarError;
+    return { status: this.avatarStatus, md5: 'test', bytes: image.length };
+  }
+  async clearAvatar() {
+    if (this.clearError) throw this.clearError;
+    this.avatarCleared++;
   }
 
   // ---- test conveniences ----

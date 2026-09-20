@@ -30,6 +30,13 @@ export interface TsChannel {
   parentId: bigint;
 }
 
+export interface AvatarResult {
+  /** "unchanged" means the server already showed exactly this image, so nothing was uploaded. */
+  status: 'uploaded' | 'unchanged';
+  md5: string;
+  bytes: number;
+}
+
 export interface AdapterEvents {
   connected: [];
   disconnected: [reason: string];
@@ -63,4 +70,8 @@ export interface TsAdapter {
   sendVoice(frame: Uint8Array, codec: number): void;
   /** Redeem a privilege key so the bot receives its server group. */
   usePrivilegeKey(token: string): Promise<void>;
+  /** Set the bot's avatar (PNG, JPEG or GIF). Skips the upload if the server already shows this image, unless `force`. */
+  setAvatar(image: Buffer, opts?: { force?: boolean }): Promise<AvatarResult>;
+  /** Remove the bot's avatar. */
+  clearAvatar(): Promise<void>;
 }

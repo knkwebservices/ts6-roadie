@@ -1,9 +1,11 @@
 import {
   Client,
   clientMove,
+  dialFileTransfer,
   getClientInfo,
   sendTextMessage,
   type DirectorySnapshot,
+  type FileUploadInfo,
   type Identity,
   type Logger as LibLogger,
 } from '@echosixhiya/teamspeak-client';
@@ -11,7 +13,9 @@ import { buildCommand } from '@echosixhiya/teamspeak-client/command';
 import type { Log } from '../logger.js';
 import { TypedEmitter } from '../util/emitter.js';
 import { chunkText, errMessage, sleep } from '../util/text.js';
-import type { AdapterEvents, IncomingMessage, MessageScope, TsAdapter, TsChannel, TsUser } from './types.js';
+import { applyAvatar, clearAvatar as clearAvatarFlag, type AvatarIo } from './avatar.js';
+import { hostFromAddress, sendOverTransfer } from './filetransfer.js';
+import type { AdapterEvents, AvatarResult, IncomingMessage, MessageScope, TsAdapter, TsChannel, TsUser } from './types.js';
 
 export interface TeamspeakAdapterOptions {
   address: string;
@@ -258,5 +262,33 @@ export class TeamspeakAdapter implements TsAdapter {
 
   async usePrivilegeKey(token: string): Promise<void> {
     await this.#need().execCommand(buildCommand('privilegekeyuse', { token }), 10_000);
+  }
+
+  // ---- avatar -------------------------------------------------------------------------------
+
+  async setAvatar(image: Buffer, opts: { force?: boolean } = {}): Promise<AvatarResult> {
+    return applyAvatar(this.#avatarIo(this.#need()), image, opts);
+  }
+
+  async clearAvatar(): Promise<void> {
+    await clearAvatarFlag(this.#avatarIo(this.#need()));
+  }
+
+  #avatarIo(client: Client): AvatarIo<FileUploadInfo> {
+    const host = hostFromAddress(this.#o.address);
+    return {
+      currentHash: async () => {
+        try {
+          const info = await getClientInfo(client, client.clientID());
+          return info['client_flag_avatar'] ?? '';
+        } catch {
+          return undefined; // not allowed to read it: just upload
+        }
+      },
+      // Avatars live in channel 0's file area, always under the name "/avatar" (overwrite = true).
+      initUpload: (size) => client.fileTransferInitUpload(0n, '/avatar', '', BigInt(size), true),
+      send: (info, bytes) => sendOverTransfer(dialFileTransfer, host, { port: info.port, key: info.fileTransferKey }, bytes),
+      setFlag: (hash) => client.execCommand(buildCommand('clientupdate', { client_flag_avatar: hash }), 10_000),
+    };
   }
 }

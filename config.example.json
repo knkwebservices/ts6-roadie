@@ -16,9 +16,14 @@
 
   "privilegeKey": "",
 
-  "cogs": ["core", "audio"],
+  "cogs": ["core", "audio", "avatar"],
 
   "logLevel": "info",
+
+  "avatar": {
+    "file": "",
+    "applyOnConnect": true
+  },
 
   "follow": {
     "idleReturnSeconds": 120,

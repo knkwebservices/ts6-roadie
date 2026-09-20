@@ -16,7 +16,7 @@ A music bot for **TeamSpeak 6** that carries the music to whoever asks for it. S
 
 | Verified on a real TS6 server | Verified by automated tests only | Not verified |
 | --- | --- | --- |
-| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), install/update/roll-back script (against a fake service) | Redeeming a privilege key on first connect (`privilegeKey`), an update run *with* a live Windows service, starting automatically after a reboot, Linux service setup, channels the bot has no permission to join |
+| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), install/update/roll-back script (against a fake service) | Redeeming a privilege key on first connect (`privilegeKey`), uploading the avatar (`!avatar`), an update run *with* a live Windows service, starting automatically after a reboot, Linux service setup, channels the bot has no permission to join |
 
 The TeamSpeak protocol code is a third-party library ([`@echosixhiya/teamspeak-client`](https://github.com/EchoSixHIYA/teamspeak-js), MIT). It is young. All use of it lives in one file, `src/adapter/teamspeak.ts`, behind an interface (`src/adapter/types.ts`). If it ever breaks against a server update, that file is the only place to change.
 
@@ -112,6 +112,7 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!leave` (`!home`) | Stop and go back to the home channel |
 | `!help [command]`, `!ping`, `!whoami` | Everyone |
 | `!status`, `!cogs`, `!load`, `!unload`, `!reload`, `!restart` | Admins only |
+| `!avatar [clear]` | Admins only. Uploads the bot's avatar (the Roadie icon by default), or removes it. See [Avatar](#avatar). |
 
 Behaviour worth knowing:
 
@@ -128,10 +129,23 @@ Behaviour worth knowing:
 | --- | --- |
 | `server.homeChannel` | Where the bot lives and returns to |
 | `server.identityLevel` | Security level of the bot's identity (default 10). Raise it if a server demands more; higher levels take exponentially longer to generate. |
+| `avatar.file` | Image for the bot's avatar (PNG, JPEG or GIF). Empty = the bundled Roadie icon. A relative path is relative to the data folder. |
+| `avatar.applyOnConnect` | Set the avatar automatically each time the bot connects, skipping the upload if the server already shows it (default `true`) |
 | `audio.codec` | `5` = Opus Music (stereo, default). Try `4` if a server only accepts voice. |
 | `audio.bitrate` | Opus bitrate in bit/s (default 64000) |
 | `audio.radioStations` | Your own stations: `{ "key": { "name": "...", "url": "https://..." } }`. Replaces the built-in SomaFM list, whose URLs are not guaranteed, so check them. |
 | `audio.ytdlpExtraArgs` | Extra yt-dlp arguments, e.g. `["--js-runtimes","node"]` or `["--cookies","C:\\path\\cookies.txt"]` |
+
+### Avatar
+
+The `avatar` cog gives the bot a picture in the TeamSpeak client. By default it uses the bundled Roadie icon (`assets/roadie-avatar.png`) and sets it each time the bot connects, unless the server already shows that exact image. Set `avatar.file` to use your own image, `avatar.applyOnConnect` to `false` to turn the automatic part off, or remove `avatar` from `cogs` to drop the feature. `!avatar` (admins) re-uploads on demand and `!avatar clear` removes it. If you are updating an existing install, add `"avatar"` to `cogs` in your config.
+
+It uses TeamSpeak's file-transfer feature, so two things must be true:
+
+- The bot must be able to open a **TCP connection to the server's file-transfer port** (the server tells the bot which port; TeamSpeak's default is 30033). If that port is blocked, the log says `could not reach the server's file-transfer port (TCP nnnnn ...)`. Open that port in the server's firewall.
+- The bot's server group needs permission to upload a file and set an avatar of that size (in the TS3 permission list: `i_client_max_avatar_filesize` and the `i_ft_file_upload_power` family). If the server refuses, the reason is in the log and in the `!avatar` reply.
+
+A failed automatic upload only writes a warning to the log. It never posts in chat.
 
 ### YouTube
 
@@ -188,6 +202,7 @@ Logs: `data/logs/tsbot-YYYY-MM-DD.log` (14 days kept). Set `"logLevel": "debug"`
 - **`Bot admin: no` for the right person.** Compare the `Unique ID` printed by `!whoami` with `admins`. Use the one `!whoami` prints.
 - **The bot joins but nobody hears it.** Talk power or server-group setup. Try `"codec": 4`.
 - **"I can't tell which channel you're in".** The bot couldn't see you, usually the subscribe permission. Look for `channelsubscribeall failed` in the log.
+- **`Could not set the avatar` / no avatar shows.** The message says why. The usual causes are the server's file-transfer TCP port being blocked (see [Avatar](#avatar)) or the bot's server group lacking upload or avatar permissions. Other users may need to reconnect, or wait a moment, before their client shows a changed avatar.
 - **The bot process keeps restarting.** Anything uncaught makes it exit so the service manager restarts it. The log has the reason. A config error stops it from starting at all, with the problem named in the log.
 
 ## Development
