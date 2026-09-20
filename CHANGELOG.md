@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+- Fixed: restarting the bot, or using `!reload audio` / `!unload audio`, while a track was playing logged a harmless "audio cog is not loaded" error. The audio cog now finishes quietly.
+- README: the avatar upload and updating a live Windows service are now marked as verified on a real server.
+
 ## 0.3.0
 - New `avatar` cog: `!avatar` (admins) uploads the bot's avatar, the Roadie icon by default, and `!avatar clear` removes it. The avatar is also set automatically on connect when the server does not already show it (`avatar.applyOnConnect`, `avatar.file`).
 - Uses TeamSpeak's file-transfer port (TCP), which must be reachable from the bot. See the README's Avatar section.

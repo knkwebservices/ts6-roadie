@@ -42,7 +42,9 @@ class FakePlayer implements PlayerLike {
     this.paused = false;
     return was;
   }
-  dispose() {}
+  dispose() {
+    this.stop(); // like the real Player: disposing ends whatever is playing
+  }
 }
 
 interface Rig extends Harness {
@@ -326,6 +328,24 @@ test('!status (admin) shows playback and tool versions', async () => {
     assert.ok(r.adapter.lastReply().includes(`Bot ${BOT_VERSION}`), `status should show the real version ${BOT_VERSION}`);
     assert.match(r.adapter.lastReply(), /audiotest: idle \| queue 0 \| volume 50 \| yt-dlp test \| ffmpeg test/);
   } finally {
+    r.cleanup();
+  }
+});
+
+test('unloading the cog while a track is playing (what a restart does) finishes quietly', async () => {
+  const r = await makeRig();
+  const rejections: unknown[] = [];
+  const onRejection = (e: unknown) => rejections.push(e);
+  process.on('unhandledRejection', onRejection);
+  try {
+    const alice = r.adapter.addUser(5, 'Alice', CH.home);
+    r.adapter.say(alice, '!play one');
+    await until(() => r.player.playing, 2000, 'playback to start');
+    await r.bot.unloadCog('audiotest'); // Bot.stop() does the same for every cog
+    await new Promise((res) => setTimeout(res, 150)); // let the finishing track unwind
+    assert.deepEqual(rejections.map((e) => String(e)), [], 'a track ending after unload must not throw');
+  } finally {
+    process.off('unhandledRejection', onRejection);
     r.cleanup();
   }
 });

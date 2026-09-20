@@ -62,7 +62,7 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
   }
 
   async function goHome(): Promise<void> {
-    if (busy() || !adapter.connected) return;
+    if (!player || busy() || !adapter.connected) return;
     const home = adapter.findChannel(bot.config.server.homeChannel);
     if (!home || adapter.selfChannelId() === home.id) return;
     try {
@@ -75,7 +75,7 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
 
   function scheduleIdle(): void {
     cancelIdle();
-    if (busy()) return;
+    if (!player || busy()) return; // no player = the cog was unloaded while a track was finishing
     idleTimer = setTimeout(() => void goHome(), bot.config.follow.idleReturnSeconds * 1000);
     idleTimer.unref?.();
   }
@@ -88,7 +88,7 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
 
   /** If the bot is left alone in a channel for a while, stop and head home. */
   function watchChannel(): void {
-    if (!adapter.connected) return;
+    if (!player || !adapter.connected) return;
     const here = adapter.selfChannelId();
     if (here === 0n || adapter.usersInChannel(here).length > 0) {
       aloneSince = undefined;
@@ -177,13 +177,15 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
   }
 
   async function pump(): Promise<void> {
-    if (pumping) return;
+    if (pumping || !player) return;
     pumping = true;
     cancelIdle();
     try {
       for (let t = queue.next(); t; t = queue.next()) {
+        const p = player;
+        if (!p) break; // unloaded while the previous track was finishing
         if (cfg.announceNowPlaying) say(`Now playing: ${describe(t)} - requested by ${t.requesterName}`);
-        const r = await pl().play(t);
+        const r = await p.play(t);
         if (r.reason === 'error') say(`Couldn't play "${t.title}": ${r.error ?? 'unknown error'}`);
       }
     } finally {
