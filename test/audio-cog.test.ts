@@ -349,3 +349,51 @@ test('unloading the cog while a track is playing (what a restart does) finishes 
     r.cleanup();
   }
 });
+
+test('the audio service is offered while the cog is loaded and withdrawn when it unloads', async () => {
+  const r = await makeRig();
+  try {
+    assert.ok(r.bot.services.get('audio'), 'provided on load');
+    await r.bot.unloadCog('audiotest');
+    assert.equal(r.bot.services.get('audio'), undefined, 'withdrawn on unload');
+    await r.bot.loadCog('audiotest');
+    assert.ok(r.bot.services.get('audio'), 'provided again after a reload');
+  } finally {
+    r.cleanup();
+  }
+});
+
+test('playlists round trip through the REAL audio cog: save, stop, then load follows the caller', async () => {
+  const r = await makeRig();
+  try {
+    await r.bot.loadCog('playlists');
+    const alice = r.adapter.addUser(5, 'Alice', CH.home);
+
+    r.adapter.say(alice, '!play one');
+    await until(() => r.player.played.length === 1, 2000, 'first track');
+    r.adapter.say(alice, '!play two');
+    await until(() => sentTexts(r).some((t) => /Queued: .*\(position 1\)/.test(t)), 2000, 'second track queued');
+
+    r.adapter.say(alice, '!playlist save Friday');
+    await until(() => sentTexts(r).some((t) => /Saved "Friday" with 2 tracks/.test(t)), 2000, 'save');
+
+    r.adapter.say(alice, '!stop');
+    await until(() => !r.player.playing, 2000, 'stop');
+
+    // Alice is now somewhere else and the bot is idle: loading must bring the bot to her.
+    alice.channelId = CH.a;
+    const before = r.player.played.length;
+    r.adapter.say(alice, '!playlist load friday');
+    await until(() => r.player.played.length === before + 1, 2000, 'playback of the loaded playlist');
+
+    assert.equal(r.adapter.chan, CH.a, 'the bot followed the caller');
+    assert.match(r.player.played.at(-1)!.url, /v=one/, 'plays the first saved track first');
+    assert.ok(sentTexts(r).some((t) => /Queued 2 tracks from "Friday"/.test(t)), 'the reply names the playlist');
+
+    r.player.endTrack();
+    await until(() => r.player.played.length === before + 2, 2000, 'second saved track');
+    assert.match(r.player.played.at(-1)!.url, /v=two/);
+  } finally {
+    r.cleanup();
+  }
+});

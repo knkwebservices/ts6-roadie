@@ -39,6 +39,12 @@ export interface Config {
     /** Set the avatar automatically each time the bot connects (skipped if the server already shows it). */
     applyOnConnect: boolean;
   };
+  playlists: {
+    /** How many saved playlists the server may hold. */
+    maxPlaylists: number;
+    /** Longest playlist, in tracks. */
+    maxTracks: number;
+  };
   follow: {
     /** After the queue empties, return to the home channel after this many seconds. */
     idleReturnSeconds: number;
@@ -76,9 +82,10 @@ export const DEFAULT_CONFIG: Config = {
   prefix: '!',
   admins: [],
   privilegeKey: '',
-  cogs: ['core', 'audio', 'avatar'],
+  cogs: ['core', 'audio', 'avatar', 'playlists'],
   logLevel: 'info',
   avatar: { file: '', applyOnConnect: true },
+  playlists: { maxPlaylists: 50, maxTracks: 100 },
   follow: { idleReturnSeconds: 120, aloneLeaveSeconds: 60 },
   audio: {
     defaultVolume: 50,
@@ -158,6 +165,8 @@ export function validateConfig(c: Config): Config {
   need(Array.isArray(c.admins) && c.admins.every((a) => typeof a === 'string'), 'admins must be an array of unique-ID strings');
   need(Array.isArray(c.cogs) && c.cogs.includes('core'), 'cogs must include "core"');
   need(['debug', 'info', 'warn', 'error'].includes(c.logLevel), 'logLevel must be debug, info, warn or error');
+  need(Number.isInteger(c.playlists.maxPlaylists) && c.playlists.maxPlaylists >= 1, 'playlists.maxPlaylists must be a whole number, at least 1');
+  need(Number.isInteger(c.playlists.maxTracks) && c.playlists.maxTracks >= 1, 'playlists.maxTracks must be a whole number, at least 1');
   need(typeof c.avatar.file === 'string', 'avatar.file must be a string (a path, or empty for the bundled icon)');
   need(typeof c.avatar.applyOnConnect === 'boolean', 'avatar.applyOnConnect must be true or false');
   need(c.audio.defaultVolume >= 0 && c.audio.defaultVolume <= 100, 'audio.defaultVolume must be 0-100');

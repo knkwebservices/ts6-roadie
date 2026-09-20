@@ -9,6 +9,7 @@ import { writeJsonAtomic } from '../util/fs.js';
 import { errMessage, parseCommandLine, stripBbcode } from '../util/text.js';
 import { BOT_VERSION } from '../version.js';
 import { CogManager } from './cogs.js';
+import { ServiceRegistry } from './services.js';
 import type { BotApi, BotEvents, CommandContext } from './types.js';
 
 export interface BotOptions {
@@ -33,6 +34,7 @@ export class Bot implements BotApi {
   readonly log: Log;
   readonly dataDir: string;
   readonly events = new TypedEmitter<BotEvents>();
+  readonly services = new ServiceRegistry();
   readonly startedAt = Date.now();
 
   readonly cogs: CogManager;

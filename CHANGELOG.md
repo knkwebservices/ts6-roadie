@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0
+- New `playlists` cog: `!playlist save|load|list|show|delete`. Saves the current track plus the queue under a name and loads it later; loading follows the caller into their channel like `!play`. Only a playlist's owner or an admin can overwrite or delete it. Stored in `data/playlists.json` (a damaged file is set aside, never overwritten).
+- New service registry for cogs (`bot.services`), so one cog can use another without importing it. The audio cog now offers an `audio` service; playlists use it.
+- New settings `playlists.maxPlaylists` and `playlists.maxTracks`.
+- Existing installs: add `"playlists"` to `cogs` in `config.json`.
+
 ## 0.3.1
 - Fixed: restarting the bot, or using `!reload audio` / `!unload audio`, while a track was playing logged a harmless "audio cog is not loaded" error. The audio cog now finishes quietly.
 - README: the avatar upload and updating a live Windows service are now marked as verified on a real server.

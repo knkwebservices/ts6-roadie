@@ -1,4 +1,5 @@
 import type { BotApi, Cog, CogFactory, CogManifest, CommandContext } from '../../core/types.js';
+import { AUDIO_SERVICE, type AudioService, type QueueItem } from '../../core/services.js';
 import { Mutex } from '../../util/mutex.js';
 import { errMessage, formatDuration } from '../../util/text.js';
 import { Player, type PlayerLike, type PlayerOptions } from './player.js';
@@ -41,6 +42,7 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
   let watchTimer: NodeJS.Timeout | undefined;
   let aloneSince: number | undefined;
   let offLost: (() => void) | undefined;
+  let unprovide: (() => void) | undefined;
   let versionCache: { at: number; text: string } | undefined;
 
   const pl = (): PlayerLike => {
@@ -164,7 +166,7 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
       }
       added.push({
         id: nextId++,
-        kind,
+        kind: it.kind ?? kind,
         title: it.title,
         url: it.url,
         durationSec: it.durationSec,
@@ -196,7 +198,7 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
   }
 
   /** Shared path for !play and !radio once the input has been resolved into items. */
-  async function queueRequest(ctx: CommandContext, kind: Track['kind'], resolve: () => Promise<MediaInfo[]>): Promise<void> {
+  async function queueRequest(ctx: CommandContext, kind: Track['kind'], resolve: () => Promise<MediaInfo[]>, label?: string): Promise<void> {
     if (queue.size >= cfg.maxQueue) {
       await ctx.reply(`The queue is full (${cfg.maxQueue} tracks).`);
       return;
@@ -221,7 +223,7 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
           const where = wasIdle ? 'starting now' : `position ${queue.size}`;
           await ctx.reply(`Queued: ${describe(added[0]!)} (${where})`);
         } else {
-          await ctx.reply(`Queued ${added.length} tracks${skipped ? ` (${skipped} skipped)` : ''}.`);
+          await ctx.reply(`Queued ${added.length} tracks${label ? ` from "${label}"` : ''}${skipped ? ` (${skipped} skipped)` : ''}.`);
         }
         return true;
       } catch (e) {
@@ -441,10 +443,21 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
       });
       watchTimer = setInterval(watchChannel, 5_000);
       watchTimer.unref?.();
+      unprovide = bot.services.provide<AudioService>(AUDIO_SERVICE, {
+        snapshot() {
+          const item = (t: Track): QueueItem => ({ kind: t.kind, title: t.title, url: t.url, durationSec: t.durationSec });
+          return {
+            current: queue.current && player?.playing ? item(queue.current) : undefined,
+            upcoming: queue.upcoming.map(item),
+          };
+        },
+        queue: (ctx, items, opts) => queueRequest(ctx, 'media', async () => items, opts?.label),
+      });
     },
 
     onUnload() {
       offLost?.();
+      unprovide?.();
       if (watchTimer) clearInterval(watchTimer);
       cancelIdle();
       queue.clear();

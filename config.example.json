@@ -16,13 +16,18 @@
 
   "privilegeKey": "",
 
-  "cogs": ["core", "audio", "avatar"],
+  "cogs": ["core", "audio", "avatar", "playlists"],
 
   "logLevel": "info",
 
   "avatar": {
     "file": "",
     "applyOnConnect": true
+  },
+
+  "playlists": {
+    "maxPlaylists": 50,
+    "maxTracks": 100
   },
 
   "follow": {

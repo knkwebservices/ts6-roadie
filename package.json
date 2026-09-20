@@ -1,6 +1,6 @@
 {
   "name": "ts6-roadie",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "description": "A music bot for TeamSpeak 6: follows whoever calls it, plays YouTube and radio. Cog-based, Red-DiscordBot style.",
   "type": "module",

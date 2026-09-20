@@ -3,6 +3,7 @@ import type { Config } from '../config.js';
 import type { Log } from '../logger.js';
 import type { StateStore } from '../state.js';
 import type { TypedEmitter } from '../util/emitter.js';
+import type { ServiceRegistry } from './services.js';
 
 export type Perm = 'everyone' | 'admin';
 
@@ -67,6 +68,8 @@ export interface BotApi {
   readonly log: Log;
   readonly dataDir: string;
   readonly events: TypedEmitter<BotEvents>;
+  /** Lets cogs offer services to each other (see core/services.ts). */
+  readonly services: ServiceRegistry;
   readonly startedAt: number;
   isAdmin(uid: string): boolean;
   /** All commands from all loaded cogs (for !help). */

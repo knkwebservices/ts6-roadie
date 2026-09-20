@@ -2,6 +2,8 @@ import type { Config } from '../../config.js';
 import { runProcess, type Runner } from './proc.js';
 
 export interface MediaInfo {
+  /** Set when the item's kind differs from the request's default (e.g. a playlist mixing tracks and radio). */
+  kind?: 'media' | 'radio';
   title: string;
   url: string;
   durationSec?: number;

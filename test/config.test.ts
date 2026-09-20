@@ -10,7 +10,8 @@ test('defaults fill in what config.json leaves out', () => {
   assert.equal(c.server.address, 'ts.example.com');
   assert.equal(c.prefix, '!');
   assert.equal(c.audio.codec, 5);
-  assert.deepEqual(c.cogs, ['core', 'audio', 'avatar']);
+  assert.deepEqual(c.cogs, ['core', 'audio', 'avatar', 'playlists']);
+  assert.deepEqual(c.playlists, { maxPlaylists: 50, maxTracks: 100 });
   assert.deepEqual(c.avatar, { file: '', applyOnConnect: true });
   assert.ok(Object.keys(c.audio.radioStations).length > 0);
 });
@@ -71,6 +72,12 @@ test('avatar settings are validated', () => {
   assert.throws(() => buildConfig({ avatar: { file: 5 } }), /avatar\.file/);
   assert.throws(() => buildConfig({ avatar: { applyOnConnect: 'yes' } }), /applyOnConnect/);
   assert.equal(buildConfig({ avatar: { file: 'mine.png', applyOnConnect: false } }).avatar.file, 'mine.png');
+});
+
+test('playlist limits are validated', () => {
+  assert.throws(() => buildConfig({ playlists: { maxPlaylists: 0 } }), /maxPlaylists/);
+  assert.throws(() => buildConfig({ playlists: { maxTracks: 2.5 } }), /maxTracks/);
+  assert.equal(buildConfig({ playlists: { maxTracks: 10 } }).playlists.maxTracks, 10);
 });
 
 test('config.example.json is itself valid', () => {

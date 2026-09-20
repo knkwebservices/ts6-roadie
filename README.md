@@ -16,7 +16,7 @@ A music bot for **TeamSpeak 6** that carries the music to whoever asks for it. S
 
 | Verified on a real TS6 server | Verified by automated tests only | Not verified |
 | --- | --- | --- |
-| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure, uploading the bot's avatar (`!avatar`), updating a live Windows service with `deploy.mjs` | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), install/update/roll-back script (against a fake service) | Redeeming a privilege key on first connect (`privilegeKey`), starting automatically after a reboot, Linux service setup, channels the bot has no permission to join |
+| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure, uploading the bot's avatar (`!avatar`), updating a live Windows service with `deploy.mjs` | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), playlists, install/update/roll-back script (against a fake service) | Redeeming a privilege key on first connect (`privilegeKey`), starting automatically after a reboot, Linux service setup, channels the bot has no permission to join |
 
 The TeamSpeak protocol code is a third-party library ([`@echosixhiya/teamspeak-client`](https://github.com/EchoSixHIYA/teamspeak-js), MIT). It is young. All use of it lives in one file, `src/adapter/teamspeak.ts`, behind an interface (`src/adapter/types.ts`). If it ever breaks against a server update, that file is the only place to change.
 
@@ -108,6 +108,7 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!radio [number\|name\|URL]` | No argument lists stations. Or give a direct stream URL. |
 | `!queue` (`!q`), `!np` | What's playing and what's next |
 | `!skip`, `!stop`, `!pause`, `!resume`, `!clear`, `!remove <n>`, `!shuffle`, `!volume [0-100]` | Playback control. You must be in the bot's channel (admins can always). |
+| `!playlist save\|load\|list\|show\|delete [name]` (`!pl`) | Save what is queued as a named playlist and load it later. See [Playlists](#playlists). |
 | `!summon` (`!join`) | Bring the bot to your channel |
 | `!leave` (`!home`) | Stop and go back to the home channel |
 | `!help [command]`, `!ping`, `!whoami` | Everyone |
@@ -129,12 +130,29 @@ Behaviour worth knowing:
 | --- | --- |
 | `server.homeChannel` | Where the bot lives and returns to |
 | `server.identityLevel` | Security level of the bot's identity (default 10). Raise it if a server demands more; higher levels take exponentially longer to generate. |
+| `playlists.maxPlaylists` / `playlists.maxTracks` | How many playlists the server may hold (default 50) and the longest one in tracks (default 100) |
 | `avatar.file` | Image for the bot's avatar (PNG, JPEG or GIF). Empty = the bundled Roadie icon. A relative path is relative to the data folder. |
 | `avatar.applyOnConnect` | Set the avatar automatically each time the bot connects, skipping the upload if the server already shows it (default `true`) |
 | `audio.codec` | `5` = Opus Music (stereo, default). Try `4` if a server only accepts voice. |
 | `audio.bitrate` | Opus bitrate in bit/s (default 64000) |
 | `audio.radioStations` | Your own stations: `{ "key": { "name": "...", "url": "https://..." } }`. Replaces the built-in SomaFM list, whose URLs are not guaranteed, so check them. |
 | `audio.ytdlpExtraArgs` | Extra yt-dlp arguments, e.g. `["--js-runtimes","node"]` or `["--cookies","C:\\path\\cookies.txt"]` |
+
+### Playlists
+
+The `playlists` cog saves what is currently playing and queued under a name, so a group can bring back its favourites with one command instead of searching every time.
+
+```
+!playlist save friday night    saves the current track plus the queue
+!playlist load friday night    queues it (the bot follows you, exactly like !play)
+!playlist list                 every saved playlist
+!playlist show friday night    the tracks in one
+!playlist delete friday night  removes it
+```
+
+Anyone can load a playlist. Only the person who saved it, or a bot admin, can overwrite or delete it, and an admin overwriting keeps the original owner. Names are 1-32 letters, numbers, spaces or `_ . ' -` and are not case-sensitive. Playlists live in `data/playlists.json`, written safely so a crash cannot corrupt them. If that file is ever damaged by hand-editing, the bot moves it aside as `playlists.json.broken-<time>` and starts empty rather than overwriting it. Links in the file are checked again on load, so a hand-edit cannot make the bot fetch from a private address.
+
+If you are updating an existing install, add `"playlists"` to `cogs` in your config.
 
 ### Avatar
 
@@ -189,6 +207,8 @@ export default (bot) => ({
   }],
 });
 ```
+
+Cogs can offer things to each other without importing one another: a cog calls `bot.services.provide(name, service)` when it loads (and the function it returns when it unloads), and another cog calls `bot.services.get(name)` when it needs it, coping with `undefined` if the other cog is not loaded. The audio cog offers an `audio` service (see `src/core/services.ts`): `snapshot()` for what is queued, and `queue(ctx, items)` to queue tracks for the caller exactly as `!play` does. The playlists cog is built on it.
 
 Then `!load hello`. Editing the file and running `!reload hello` picks up the change, and if the new version has an error the old one stays loaded. `!reload` re-reads a cog's *entry file* only, so if you split a cog across files, changes to the others need `!restart`. The folder name must equal `manifest.name`, and two cogs cannot claim the same command. The built-in `core` cog cannot be unloaded. Add the name to `cogs` in the config to load it at start-up.
 
