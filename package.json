@@ -1,0 +1,31 @@
+{
+  "name": "ts6-roadie",
+  "version": "0.2.0",
+  "private": true,
+  "description": "A music bot for TeamSpeak 6: follows whoever calls it, plays YouTube and radio. Cog-based, Red-DiscordBot style.",
+  "type": "module",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "smoke": "node dist/smoke.js",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "vendor:ts": "node scripts/vendor-teamspeak.mjs",
+    "deploy": "node scripts/deploy.mjs"
+  },
+  "dependencies": {
+    "@echosixhiya/teamspeak-client": "file:vendor/echosixhiya-teamspeak-client-0.2.4.tgz",
+    "opusscript": "0.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.4",
+    "tsx": "4.23.14",
+    "typescript": "5.9.3"
+  },
+  "license": "MIT"
+}

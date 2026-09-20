@@ -1,0 +1,10 @@
+node_modules/
+dist/
+data/
+*.log
+.env
+# never commit a real config, the bot's TeamSpeak identity, or backups of them
+config.json
+identity.json
+smoke-identity.json
+*.bak

@@ -1,0 +1,40 @@
+{
+  "configVersion": 1,
+
+  "server": {
+    "address": "ts.example.com:9987",
+    "password": "",
+    "nickname": "Roadie",
+    "homeChannel": "Lobby",
+    "homeChannelPassword": "",
+    "identityLevel": 10
+  },
+
+  "prefix": "!",
+
+  "admins": ["PASTE-YOUR-UNIQUE-ID-HERE"],
+
+  "privilegeKey": "",
+
+  "cogs": ["core", "audio"],
+
+  "logLevel": "info",
+
+  "follow": {
+    "idleReturnSeconds": 120,
+    "aloneLeaveSeconds": 60
+  },
+
+  "audio": {
+    "defaultVolume": 50,
+    "bitrate": 64000,
+    "codec": 5,
+    "maxQueue": 50,
+    "maxPlaylistItems": 25,
+    "maxTrackMinutes": 180,
+    "announceNowPlaying": true,
+    "ffmpegPath": "ffmpeg",
+    "ytdlpPath": "yt-dlp",
+    "ytdlpExtraArgs": []
+  }
+}
