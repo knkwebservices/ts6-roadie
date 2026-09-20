@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/roadie-banner.png" alt="TS6 Roadie" width="720"></p>
+
 # TS6 Roadie
 
 A music bot for **TeamSpeak 6** that carries the music to whoever asks for it. Structured like [Red-DiscordBot](https://github.com/Cog-Creators/Red-DiscordBot): a small core plus **cogs** you can load, unload and reload from chat.
