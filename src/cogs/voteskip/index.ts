@@ -24,6 +24,7 @@ const factory: CogFactory = (bot): Cog => {
         run: async (ctx) => {
           const audio = bot.services.get<AudioService>(AUDIO_SERVICE);
           if (!audio) return ctx.reply('The audio cog is not loaded.');
+          if (!ctx.isAdmin && audio.blocked?.(ctx.msg.senderUid)) return ctx.reply('You are blocked from the music commands.');
           const now = audio.snapshot().current;
           if (!now) return ctx.reply('Nothing is playing.');
           if (!(await ctx.withBot())) return ctx.reply('You need to be in my channel to vote.');

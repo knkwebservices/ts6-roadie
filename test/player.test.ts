@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -187,4 +187,36 @@ test('no ffmpeg processes are left behind after stop', async () => {
   }
   assert.equal(leftover.trim(), '', `leftover ffmpeg: ${leftover}`);
   player.dispose();
+});
+
+test('startSec begins part-way into a file, and the position counts from the track\'s start', async () => {
+  const { player, sent } = makePlayer();
+  const run = player.play({ kind: 'radio', url: wav10s, startSec: 6 });
+  await new Promise((r) => setTimeout(r, 400));
+  assert.ok(player.positionSec >= 6 && player.positionSec < 7, `position ${player.positionSec}`);
+  const res = await run;
+  assert.equal(res.reason, 'ended');
+  const frames = audioFrames(sent).length;
+  // 10 s file, starting at 6 s: about 4 s = 200 frames (not the full 500)
+  assert.ok(frames >= 190 && frames <= 215, `${frames} frames`);
+  assert.equal(player.positionSec, 0, 'nothing playing: no position');
+});
+
+test('a startSec of zero plays the whole file', async () => {
+  const a = makePlayer();
+  const run = a.player.play({ kind: 'radio', url: wav1s, startSec: 0 });
+  assert.equal((await run).reason, 'ended');
+  assert.ok(audioFrames(a.sent).length >= 45, 'the whole 1 s file');
+});
+
+test('startSec also works for a stream piped in from yt-dlp (which cannot be seeked)', { skip: process.platform === 'win32' }, async () => {
+  // A stand-in for yt-dlp that just writes a 10 s file to its output, like a download would.
+  const fake = join(dir, 'fake-ytdlp.sh');
+  writeFileSync(fake, `#!/bin/sh\ncat "${wav10s}"\n`);
+  chmodSync(fake, 0o755);
+  const { player, sent } = makePlayer({ ytdlpPath: fake });
+  const res = await player.play({ kind: 'media', url: 'https://example.com/video', startSec: 6 });
+  assert.equal(res.reason, 'ended');
+  const frames = audioFrames(sent).length;
+  assert.ok(frames >= 190 && frames <= 215, `${frames} frames (about 4 s were expected)`);
 });

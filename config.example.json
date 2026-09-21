@@ -63,6 +63,10 @@
     "announceRadioTitles": false,
     "ffmpegPath": "ffmpeg",
     "ytdlpPath": "yt-dlp",
-    "ytdlpExtraArgs": []
+    "ytdlpExtraArgs": [],
+    "maxQueuePerUser": 0,
+    "blockedWords": [],
+    "autoDj": { "enabled": false, "source": "" },
+    "stayInChannel": false
   }
 }

@@ -86,7 +86,7 @@ test('the overview shows health, cogs and who is where, and never other people\'
 
     const ch = (name: string) => o.channels.find((c: { name: string }) => c.name === name);
     assert.deepEqual(ch('Lobby').users.map((u: { name: string }) => u.name).sort(), ['Admin', 'Alice']);
-    assert.deepEqual(ch('Gaming A').users, [{ name: 'Bob' }]);
+    assert.deepEqual(ch('Gaming A').users, [{ id: 7, name: 'Bob' }]);
     assert.equal(ch('Gaming A').id, String(CH.a));
     assert.equal(ch('Gaming A').parentId, '0');
 

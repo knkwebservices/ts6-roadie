@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { JSDOM } from 'jsdom';
-import type { AudioService, AudioState, PlaylistsService } from '../src/core/services.js';
+import type { AudioService, AudioState, PlaylistsService, TrollSettings } from '../src/core/services.js';
 import type { WebService } from '../src/cogs/web/index.js';
 import type { TsUser } from '../src/adapter/types.js';
 import { CH, makeBot, makeConfig, until, type Harness } from './helpers.js';
@@ -46,6 +46,8 @@ export function request(
 export interface FakeAudio {
   svc: AudioService;
   state: AudioState;
+  /** What the Admin tab's Troll control card is shown. Change it before opening the page. */
+  troll: TrollSettings;
 }
 
 export function fakeAudio(over: Partial<AudioState> = {}): FakeAudio {
@@ -56,8 +58,11 @@ export function fakeAudio(over: Partial<AudioState> = {}): FakeAudio {
     queue: async () => {},
     skip: () => true,
     resolve: async () => [],
+    blocked: () => false,
+    troll: () => troll,
   };
-  return { svc, state };
+  const troll: TrollSettings = { users: [], words: [], maxQueuePerUser: 0 };
+  return { svc, state, get troll() { return troll; }, set troll(v) { Object.assign(troll, v); } };
 }
 
 export interface WebRig extends Harness {
@@ -76,7 +81,7 @@ export async function makeWebRig(configOver: Record<string, unknown> = {}, audio
   const web = h.bot.services.get<WebService>('web')!;
   const audio = fakeAudio(audioOver);
   h.bot.services.provide<AudioService>('audio', audio.svc);
-  h.bot.services.provide<PlaylistsService>('playlists', { list: () => [{ name: 'Friday Night', tracks: 3, owner: 'Alice' }] });
+  h.bot.services.provide<PlaylistsService>('playlists', { list: () => [{ name: 'Friday Night', tracks: 3, owner: 'Alice' }], tracks: () => undefined });
   const alice = h.adapter.addUser(5, 'Alice', CH.home, 'uid-alice', [6]);
   const admin = h.adapter.addUser(6, 'Admin', CH.home, 'uid-Admin', []);
 

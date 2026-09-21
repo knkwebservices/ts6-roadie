@@ -19,6 +19,8 @@ const STALL_TIMEOUT_MS = 20_000;
 export interface PlayInput {
   kind: TrackKind;
   url: string;
+  /** Start this many seconds in (ignored for live radio). */
+  startSec?: number;
 }
 
 export interface PlayResult {
@@ -96,7 +98,7 @@ export class Player implements PlayerLike {
     return !!this.#run?.paused;
   }
   get positionSec(): number {
-    return this.#run ? (this.#run.frames * FRAME_MS) / 1000 : 0;
+    return this.#run ? this.#run.startSec + (this.#run.frames * FRAME_MS) / 1000 : 0;
   }
 
   play(input: PlayInput): Promise<PlayResult> {
@@ -136,6 +138,8 @@ export class Player implements PlayerLike {
 class Run {
   frames = 0;
   paused = false;
+  /** Where in the track this run began, so the position shown counts from the track's start. */
+  readonly startSec: number;
 
   #ff?: ChildProcess;
   #yt?: ChildProcess;
@@ -158,13 +162,20 @@ class Run {
   ) {
     const viaYtdlp = input.kind === 'media';
     const isNet = /^https?:\/\//i.test(input.url);
+    // Live radio has no position to jump to; everything else can start part-way in.
+    const start = input.kind === 'radio' && isNet ? 0 : Math.max(0, Math.floor(input.startSec ?? 0));
+    this.startSec = start;
 
     const ffArgs = ['-hide_banner', '-loglevel', 'error', '-nostdin'];
     if (!viaYtdlp && isNet) {
       // Keep radio alive across network blips, and never let a stream playlist reach local files.
       ffArgs.push('-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '5', '-protocol_whitelist', 'http,https,tcp,tls,crypto');
     }
-    ffArgs.push('-i', viaYtdlp ? 'pipe:0' : input.url, '-vn', '-f', 's16le', '-ar', '48000', '-ac', '2', 'pipe:1');
+    // A file can be jumped into directly. A stream from yt-dlp cannot be seeked, so ffmpeg reads and drops the first part instead.
+    if (start > 0 && !viaYtdlp) ffArgs.push('-ss', String(start));
+    ffArgs.push('-i', viaYtdlp ? 'pipe:0' : input.url);
+    if (start > 0 && viaYtdlp) ffArgs.push('-ss', String(start));
+    ffArgs.push('-vn', '-f', 's16le', '-ar', '48000', '-ac', '2', 'pipe:1');
 
     try {
       const ff = spawn(o.ffmpegPath, ffArgs, { stdio: [viaYtdlp ? 'pipe' : 'ignore', 'pipe', 'pipe'], windowsHide: true });

@@ -38,7 +38,7 @@ const factory: CogFactory = (bot): Cog => {
       bot: { connected: bot.adapter.connected, channel: channelName(bot.adapter.selfChannelId()) },
       audio: bot.services.get<AudioService>(AUDIO_SERVICE)?.state() ?? null,
       playlists: bot.services.get<PlaylistsService>(PLAYLISTS_SERVICE)?.list() ?? [],
-      stations: Object.values(bot.config.audio.radioStations).map((s, i) => ({ n: i + 1, name: s.name })),
+      stations: Object.entries(bot.config.audio.radioStations).map(([key, s], i) => ({ n: i + 1, key, name: s.name })),
     };
   }
 

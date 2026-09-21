@@ -1,102 +1,9 @@
 import assert from 'node:assert/strict';
-import { join, resolve } from 'node:path';
 import { test } from 'node:test';
-import type { AudioDeps } from '../src/cogs/audio/index.js';
-import type { PlayInput, PlayResult, PlayerLike } from '../src/cogs/audio/player.js';
-import type { MediaInfo } from '../src/cogs/audio/sources.js';
 import { SourceError } from '../src/cogs/audio/sources.js';
 import { BOT_VERSION } from '../src/version.js';
-import { CH, makeBot, makeConfig, until, type Harness } from './helpers.js';
-
-/** Player whose tracks last until the test says so. */
-class FakePlayer implements PlayerLike {
-  volume = 0.5;
-  playing = false;
-  paused = false;
-  positionSec = 0;
-  played: PlayInput[] = [];
-  #finish?: (r: PlayResult) => void;
-  play(input: PlayInput) {
-    this.playing = true;
-    this.played.push(input);
-    return new Promise<PlayResult>((res) => {
-      this.#finish = (r) => {
-        this.playing = false;
-        this.paused = false;
-        res(r);
-      };
-    });
-  }
-  stop() {
-    this.#finish?.({ reason: 'stopped', seconds: 0 });
-  }
-  endTrack() {
-    this.#finish?.({ reason: 'ended', seconds: 1 });
-  }
-  pause() {
-    this.paused = true;
-    return true;
-  }
-  resume() {
-    const was = this.paused;
-    this.paused = false;
-    return was;
-  }
-  dispose() {
-    this.stop(); // like the real Player: disposing ends whatever is playing
-  }
-}
-
-interface RadioListener {
-  url: string;
-  emit(title: string): void;
-  stopped: boolean;
-}
-
-interface Rig extends Harness {
-  radio: RadioListener[];
-  player: FakePlayer;
-  resolveCalls: string[];
-  setResolver(fn: (q: string) => Promise<MediaInfo[]>): void;
-}
-
-const audioEntry = resolve(import.meta.dirname, '../src/cogs/audio/index.ts');
-
-async function makeRig(configOver: Record<string, unknown> = {}): Promise<Rig> {
-  const player = new FakePlayer();
-  const resolveCalls: string[] = [];
-  const radio: RadioListener[] = [];
-  let resolver: (q: string) => Promise<MediaInfo[]> = async (q) => [{ title: `Song for "${q}"`, url: `https://www.youtube.com/watch?v=${encodeURIComponent(q)}`, durationSec: 200 }];
-  const deps: AudioDeps = {
-    resolveMedia: async (q) => {
-      resolveCalls.push(q);
-      return resolver(q);
-    },
-    createPlayer: () => player,
-    toolVersion: async () => 'test',
-    startRadioTitles: (url, onTitle) => {
-      const l: RadioListener = { url, emit: onTitle, stopped: false };
-      radio.push(l);
-      return () => {
-        l.stopped = true;
-      };
-    },
-  };
-  (globalThis as Record<string, unknown>).__audioDeps = deps;
-  // A drop-in cog that wires the real audio cog to the fake dependencies.
-  const h = await makeBot({
-    config: makeConfig({ cogs: ['core', 'audiotest'], ...configOver }),
-    customCogs: {
-      audiotest: `
-        import { createAudioCog } from ${JSON.stringify('file://' + audioEntry)};
-        export const manifest = { name: 'audiotest', version: '1', description: 'audio with fakes' };
-        export default (bot) => createAudioCog(bot, globalThis.__audioDeps);`,
-    },
-  });
-  return { ...h, player, radio, resolveCalls, setResolver: (fn) => (resolver = fn) };
-}
-
-const sentTexts = (r: Rig) => r.adapter.sent.map((s) => s.text);
+import { makeRig, sentTexts } from './audio-helpers.js';
+import { CH, until } from './helpers.js';
 
 test('idle bot follows the caller into their channel and starts playing', async () => {
   const r = await makeRig();
@@ -341,7 +248,7 @@ test('!status (admin) shows playback and tool versions', async () => {
     r.adapter.say(admin, '!status');
     await until(() => r.adapter.sent.length === 1);
     assert.ok(r.adapter.lastReply().includes(`Bot ${BOT_VERSION}`), `status should show the real version ${BOT_VERSION}`);
-    assert.match(r.adapter.lastReply(), /audiotest: idle \| queue 0 \| volume 50 \| yt-dlp test \| ffmpeg test/);
+    assert.match(r.adapter.lastReply(), /audiotest: idle \| queue 0 \| repeat off \| auto-DJ off \| 24\/7 off \| volume 50 \| yt-dlp test \| ffmpeg test/);
   } finally {
     r.cleanup();
   }

@@ -105,6 +105,18 @@ export interface Config {
     /** Extra yt-dlp arguments, e.g. ["--cookies", "C:\\tsbot\\data\\cookies.txt"]. */
     ytdlpExtraArgs: string[];
     radioStations: Record<string, RadioStation>;
+    /** How many tracks one person may have queued at once. Bot admins are exempt. 0 = no limit. */
+    maxQueuePerUser: number;
+    /** Words that keep a track out of the queue when they appear in its title or address. Bot admins are exempt. */
+    blockedWords: string[];
+    /** Play something by itself when the queue is empty and someone is listening. */
+    autoDj: {
+      enabled: boolean;
+      /** "radio:<station key or number>" or "playlist:<name>". Empty = nothing chosen yet. */
+      source: string;
+    };
+    /** 24/7 mode: stay in whatever channel the bot is in instead of going home when idle or leaving when alone. */
+    stayInChannel: boolean;
   };
 }
 
@@ -142,6 +154,10 @@ export const DEFAULT_CONFIG: Config = {
     ffmpegPath: 'ffmpeg',
     ytdlpPath: 'yt-dlp',
     ytdlpExtraArgs: [],
+    maxQueuePerUser: 0,
+    blockedWords: [],
+    autoDj: { enabled: false, source: '' },
+    stayInChannel: false,
     radioStations: {
       groovesalad: { name: 'SomaFM Groove Salad', url: 'https://ice1.somafm.com/groovesalad-128-mp3' },
       spacestation: { name: 'SomaFM Space Station', url: 'https://ice1.somafm.com/spacestation-128-mp3' },
@@ -252,6 +268,10 @@ export function validateConfig(c: Config): Config {
   need(typeof c.audio.radioNowPlaying === 'boolean', 'audio.radioNowPlaying must be true or false');
   need(typeof c.audio.announceRadioTitles === 'boolean', 'audio.announceRadioTitles must be true or false');
   need(Array.isArray(c.audio.ytdlpExtraArgs), 'audio.ytdlpExtraArgs must be an array');
+  need(Number.isInteger(c.audio.maxQueuePerUser) && c.audio.maxQueuePerUser >= 0 && c.audio.maxQueuePerUser <= 1000, 'audio.maxQueuePerUser must be a whole number from 0 (no limit) to 1000');
+  need(Array.isArray(c.audio.blockedWords) && c.audio.blockedWords.every((w) => typeof w === 'string' && w.trim().length > 0 && w.length <= 64), 'audio.blockedWords must be a list of words, each 1 to 64 characters');
+  need(isObject(c.audio.autoDj) && typeof c.audio.autoDj.enabled === 'boolean' && typeof c.audio.autoDj.source === 'string' && c.audio.autoDj.source.length <= 100, 'audio.autoDj must look like { \"enabled\": false, \"source\": \"radio:groovesalad\" }');
+  need(typeof c.audio.stayInChannel === 'boolean', 'audio.stayInChannel must be true or false');
   for (const [key, st] of Object.entries(c.audio.radioStations)) {
     need(isObject(st) && typeof st.name === 'string' && /^https?:\/\//i.test(String(st.url)), `audio.radioStations.${key} needs a name and an http(s) url`);
   }

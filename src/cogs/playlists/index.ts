@@ -251,6 +251,7 @@ const factory: CogFactory = (bot): Cog => {
     onLoad() {
       unprovide = bot.services.provide<PlaylistsService>(PLAYLISTS_SERVICE, {
         list: () => store.list().map((pl) => ({ name: pl.name, tracks: pl.tracks.length, owner: pl.ownerName })),
+        tracks: (name) => store.get(name)?.tracks.map((t) => ({ kind: t.kind, title: t.title, url: t.url, durationSec: t.durationSec })),
       });
     },
 

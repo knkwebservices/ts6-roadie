@@ -32,6 +32,8 @@ export interface QueueItem {
   title: string;
   url: string;
   durationSec?: number;
+  /** Picked by Auto-DJ rather than requested by a person. */
+  auto?: boolean;
 }
 
 /** The track playing now. `id` is unique per queued track, so a change of id means a new track. */
@@ -39,6 +41,16 @@ export interface NowPlaying extends QueueItem {
   id: number;
   /** For a radio station: the song it is announcing right now, if it announces them. */
   liveTitle?: string;
+}
+
+export type RepeatMode = 'off' | 'track' | 'queue';
+
+export interface AutoDjState {
+  enabled: boolean;
+  /** "radio:<key>" or "playlist:<name>", or empty if none is chosen. */
+  source: string;
+  /** A readable name for the source, like the station or playlist name. */
+  sourceName: string;
 }
 
 /** Everything the dashboard needs to draw the player. */
@@ -50,12 +62,26 @@ export interface AudioState {
   positionSec: number;
   current?: NowPlaying;
   upcoming: QueueItem[];
+  repeat?: RepeatMode;
+  autoDj?: AutoDjState;
+  /** 24/7 mode: the bot stays in its channel. */
+  stay?: boolean;
+}
+
+/** What is set up to keep trolls from spoiling the music. */
+export interface TrollSettings {
+  users: { name: string; /** When the block ends, or missing if it never does. */ until?: number }[];
+  words: string[];
+  /** 0 = no limit. */
+  maxQueuePerUser: number;
 }
 
 export const PLAYLISTS_SERVICE = 'playlists';
 
 export interface PlaylistsService {
   list(): { name: string; tracks: number; owner: string }[];
+  /** The tracks of a saved playlist (names ignore case), or undefined if there is none. */
+  tracks(name: string): QueueItem[] | undefined;
 }
 
 export interface AudioService {
@@ -75,4 +101,8 @@ export interface AudioService {
    * queueing anything. Rejects with an error whose message is safe to show to users.
    */
   resolve(input: string): Promise<QueueItem[]>;
+  /** Is this person blocked from using the music commands? (Bot admins never are.) */
+  blocked(uid: string): boolean;
+  /** The current troll-control settings, for the dashboard. */
+  troll(): TrollSettings;
 }

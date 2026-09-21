@@ -108,12 +108,18 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!radio [number\|name\|URL]` | No argument lists stations. Or give a direct stream URL. |
 | `!queue` (`!q`), `!np` | What's playing and what's next. For a radio station, `!np` also shows the song it is playing right now. |
 | `!skip`, `!stop`, `!pause`, `!resume`, `!clear`, `!remove <n>`, `!shuffle`, `!volume [0-100]` | Playback control. You must be in the bot's channel (admins can always). |
+| `!seek <1:30 \| 90 \| +30 \| -30>` | Jump within the current track (not live radio). |
+| `!repeat [off\|track\|queue]` (`!loop`) | Repeat the current track or the whole queue. Live radio is never repeated. |
+| `!move <from> <to>` | Move a queued track to another position. |
 | `!playlist save\|load\|list\|show\|add\|remove\|move\|rename\|delete` (`!pl`) | Save what is queued as a named playlist, edit it, and load it later. See [Playlists](#playlists). |
 | `!voteskip` (`!vs`) | Vote to skip the current track. It skips once more than half of the people in the channel agree. See [Vote skip and permissions](#vote-skip-and-permissions). |
 | `!weblogin` | Get a one-time code (sent privately) to sign in to the [web dashboard](#web-dashboard) |
 | `!summon` (`!join`) | Bring the bot to your channel |
 | `!leave` (`!home`) | Stop and go back to the home channel |
 | `!goto <channel name>` | Admins only. Send the bot to a channel by name, or as `#<id>`. |
+| `!autodj [on\|off\|source radio <station>\|source playlist <name>]` | Admins only. See [Auto-DJ and 24/7](#auto-dj-and-247). |
+| `!stay [on\|off]` (`!247`) | Admins only. 24/7 mode: stay in the current channel. |
+| `!block <name or #number> [minutes]`, `!unblock`, `!blocklist`, `!blockword`, `!unblockword` | Admins only. See [Keeping trolls out](#keeping-trolls-out). |
 | `!help [command]`, `!ping`, `!whoami` | Everyone |
 | `!status`, `!cogs`, `!load`, `!unload`, `!reload`, `!restart` | Admins only |
 | `!avatar [clear]` | Admins only. Uploads the bot's avatar (the Roadie icon by default), or removes it. See [Avatar](#avatar). |
@@ -145,6 +151,9 @@ Behaviour worth knowing:
 | `audio.codec` | `5` = Opus Music (stereo, default). Try `4` if a server only accepts voice. |
 | `audio.bitrate` | Opus bitrate in bit/s (default 64000) |
 | `audio.radioNowPlaying` / `audio.announceRadioTitles` | Read the current song from a radio station so `!np` can show it (default on), and post each new title in the channel (default off) |
+| `audio.maxQueuePerUser` | How many tracks one person may have queued at once (default `0` = no limit; bot admins are exempt) |
+| `audio.blockedWords` | Words that keep a track out of the queue when they are in its title or address, for everyone but admins (add more with `!blockword`) |
+| `audio.autoDj` / `audio.stayInChannel` | Starting values for [Auto-DJ and 24/7 mode](#auto-dj-and-247); changes made with `!autodj` and `!stay` are remembered separately |
 | `audio.radioStations` | Your own stations: `{ "key": { "name": "...", "url": "https://..." } }`. Replaces the built-in SomaFM list, whose URLs are not guaranteed, so check them. |
 | `audio.ytdlpExtraArgs` | Extra yt-dlp arguments, e.g. `["--js-runtimes","node"]` or `["--cookies","C:\\path\\cookies.txt"]` |
 
@@ -188,6 +197,8 @@ The `web` cog is a control panel in a browser: what is playing with a progress b
 
 Nearly every button just runs a chat command as you, so it follows the same rules. Saving stations and reading the log have no chat command, so the server checks you are a bot admin for those.
 
+**On the Player tab** you can also click the progress bar to jump to that point, cycle the Repeat button, and move queued tracks up and down. **Admins** additionally get an Auto-DJ and 24/7 card, and a Troll control card, on the Admin tab: see [Auto-DJ and 24/7](#auto-dj-and-247) and [Keeping trolls out](#keeping-trolls-out).
+
 **Safety.** The page only accepts requests addressed to this machine by name or number and from its own origin, which stops a malicious web page from driving it through your browser. Login cookies are HttpOnly and SameSite=Strict, request sizes and command rates are limited, and song titles and other outside text are only ever shown as plain text, never as HTML.
 
 #### Putting the dashboard on the internet
@@ -224,6 +235,28 @@ ts6.example.com {
 Do not change `web.host`: the bot keeps listening on `127.0.0.1` only, so the proxy is the one way in. Sign-in works the same as before (`!weblogin`), the login cookie is `Secure`, and each visitor has their own limit on wrong guesses. Access is only ever as wide as the chat rules: you can still restrict `weblogin` to some server groups (see permissions above).
 
 Playing your own audio files is planned but not built yet.
+
+### Auto-DJ and 24/7
+
+**Auto-DJ** keeps music going without anyone asking. When the queue is empty and at least one person is in the bot's channel, it plays a radio station, or a random track from one of your saved playlists (never the same track twice in a row). Set it up once, in chat or in the dashboard's Admin tab:
+
+```
+!autodj source radio groovesalad
+!autodj on
+```
+
+or `!autodj source playlist Friday Mix`. Some rules keep it polite: a person's request always goes ahead of it (a live station is skipped the moment someone queues something); `!stop` keeps it quiet for ten minutes, so it doesn't undo what someone just asked for; it never announces itself in chat; and if its source fails it waits a minute before trying again (the reason is in the log).
+
+**24/7 mode** (`!stay on`) keeps the bot in whatever channel it is in: it no longer goes home when idle, or leaves when it finds itself alone. Together with Auto-DJ that gives you a channel that always has music when somebody is in it: Auto-DJ pauses in an empty room (no point streaming to nobody) and starts again when someone joins. After a restart the bot returns to its home channel, so put your 24/7 channel in `server.homeChannel`. `!leave` still sends it home on request.
+
+### Keeping trolls out
+
+Everything here is for bot admins, and admins can never be blocked.
+
+- `!block <name or #number> [minutes]` stops someone using the music commands: queueing, skipping, stopping, seeking, moving tracks, repeat, volume, summoning the bot, and vote skip. They can still look at the queue. Leave out the minutes to block until you use `!unblock`. Use the `#number` (the dashboard does) when names are alike. Only people who are online can be blocked.
+- `!unblock <name or number>` lifts it, and `!blocklist` shows who is blocked, the blocked words and the per-person limit.
+- `audio.maxQueuePerUser` limits how many tracks one person can have queued at once, so nobody can fill the queue by themselves.
+- `!blockword <word>` (and `audio.blockedWords`) keeps any track with that word in its title or address out of the queue. Only admins can still add them.
 
 ### Playlists
 

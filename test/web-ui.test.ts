@@ -119,7 +119,7 @@ test('every button sends the matching chat command', async () => {
     assert.equal((page.q('#add-input') as HTMLInputElement).value, '', 'the box clears after adding');
 
     (page.qa('#stations button')[1] as HTMLElement).click(); await expectNext(++n, 'radio');
-    (page.qa('.queue-item button')[1] as HTMLElement).click(); await expectNext(++n, 'remove');
+    (page.qa('.queue-item button').find((b) => b.getAttribute('aria-label') === 'Remove B') as HTMLElement).click(); await expectNext(++n, 'remove');
     (page.qa('.playlist-item button')[0] as HTMLElement).click(); await expectNext(++n, 'playlist');
 
     assert.deepEqual(page.sent, ['!pause', '!skip', '!stop', '!shuffle', '!clear', '!volume 30', '!play never gonna give you up', '!radio 2', '!remove 2', '!playlist load Friday Night']);

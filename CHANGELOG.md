@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.0
+- **Queue control:** `!seek <1:30 | 90 | +30 | -30>` jumps within the current track (not live radio), `!repeat [off|track|queue]` (`!loop`) repeats the track or the whole queue, and `!move <from> <to>` reorders queued tracks. Live radio, failed tracks and Auto-DJ picks are never repeated, and a skip always moves on. On the dashboard: click the progress bar to jump, a Repeat button, and Up/Down buttons on queued tracks.
+- **Auto-DJ** (admins): `!autodj on|off` and `!autodj source radio <station>` or `!autodj source playlist <name>`. When the queue is empty and someone is in the bot's channel, it plays a station, or a random track from a playlist (never the same one twice in a row). A person's request always goes ahead of it, `!stop` keeps it quiet for ten minutes, and it never chats about its own trouble; if a source fails it waits a minute before trying again. Settings are remembered in `state.json`; `audio.autoDj` in `config.json` sets the starting values.
+- **24/7 mode** (admins): `!stay on|off` (`!247`). The bot stays in whatever channel it is in instead of going home when idle or leaving when alone (Auto-DJ music still pauses in an empty room, and starts again when someone joins). After a restart it returns to its home channel, so set `server.homeChannel` to where it should live. `audio.stayInChannel` sets the starting value.
+- **Troll control** (admins): `!block <name or #number> [minutes]`, `!unblock`, `!blocklist`, `!blockword`, `!unblockword`. A blocked person cannot queue, skip, stop, seek, move, repeat, change the volume, summon the bot or vote to skip; they can still look at the queue. Bot admins cannot be blocked. `audio.maxQueuePerUser` limits how many tracks one person may have queued (admins exempt), and `audio.blockedWords` (plus `!blockword`) keeps tracks with a word in the title or address out.
+- **Dashboard:** the Admin tab gains an Auto-DJ and 24/7 card and a Troll control card (blocked people and words, and a Block button for anyone online).
+- `!status` now also shows repeat, Auto-DJ and 24/7. The playlists service can now hand out a playlist's tracks (used by Auto-DJ).
+- Fixed: a caller who moves the bot now claims it before it moves, so nothing else can start playing in the gap.
+
 ## 0.9.0
 - **The dashboard has an Admin tab, for bot admins only.** Non-admins never see it, and the server refuses its requests even if a group rule lets someone sign in.
   - **Bot:** version, uptime, connection and channel at a glance, a Full status button, and a Restart button that asks first.

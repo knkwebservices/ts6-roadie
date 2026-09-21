@@ -48,12 +48,13 @@ export const APP_HTML = `<!doctype html>
     <h2>Now playing</h2>
     <p id="now-title" class="title">Nothing is playing.</p>
     <p id="now-sub" class="sub"></p>
-    <div id="progress-wrap" class="progress" hidden><div id="progress-bar"></div></div>
+    <div id="progress-wrap" class="progress" title="Click to jump to that point" hidden><div id="progress-bar"></div></div>
     <p id="now-time" class="sub"></p>
     <div class="row">
       <button id="btn-pause" type="button">Pause</button>
       <button id="btn-skip" type="button">Skip</button>
       <button id="btn-stop" type="button" class="danger">Stop</button>
+      <button id="btn-repeat" type="button" class="quiet" aria-label="Repeat mode">Repeat: off</button>
     </div>
     <div class="row">
       <label for="volume">Volume <span id="volume-label">50</span></label>
@@ -119,6 +120,46 @@ export const APP_HTML = `<!doctype html>
     </section>
 
     <section class="card">
+      <h2>Auto-DJ and 24/7</h2>
+      <p id="autodj-status" class="sub"></p>
+      <div class="row wrap">
+        <button id="btn-autodj" type="button" class="quiet">Turn Auto-DJ on</button>
+        <label for="autodj-source">Source</label>
+        <select id="autodj-source" aria-label="Auto-DJ source"></select>
+        <button id="btn-autodj-set" type="button" class="quiet">Use this source</button>
+      </div>
+      <div class="row wrap">
+        <button id="btn-stay" type="button" class="quiet">Turn 24/7 mode on</button>
+      </div>
+      <p class="sub">Auto-DJ plays something when the queue is empty and someone is in the bot's channel. A request always goes first, and using Stop pauses Auto-DJ for ten minutes. 24/7 mode keeps the bot in its channel instead of sending it home.</p>
+    </section>
+
+    <section class="card">
+      <h2>Troll control</h2>
+      <p id="troll-limit" class="sub"></p>
+      <h3>Blocked people</h3>
+      <ul id="blocked-users"></ul>
+      <p id="blocked-users-empty" class="sub">Nobody is blocked.</p>
+      <div class="row wrap">
+        <select id="block-user" aria-label="Person to block"></select>
+        <select id="block-minutes" aria-label="For how long">
+          <option value="0">Until I unblock them</option>
+          <option value="10">10 minutes</option>
+          <option value="60">1 hour</option>
+          <option value="1440">1 day</option>
+        </select>
+        <button id="btn-block" type="button" class="danger">Block</button>
+      </div>
+      <h3>Blocked words</h3>
+      <ul id="blocked-words"></ul>
+      <p id="blocked-words-empty" class="sub">No words are blocked.</p>
+      <form id="word-form" class="row" autocomplete="off">
+        <input id="word-input" type="text" maxlength="64" placeholder="A word in a title or address" aria-label="Word to block" required>
+        <button type="submit">Block word</button>
+      </form>
+    </section>
+
+    <section class="card">
       <h2>Radio stations</h2>
       <p id="stations-count" class="sub"></p>
       <ul id="station-editor"></ul>
@@ -181,7 +222,7 @@ input[type=range] { flex:1; accent-color:var(--teal); }
 label { color:var(--sub); font-size:14px; }
 #login-form { display:grid; gap:10px; max-width:320px; }
 #code { text-transform:uppercase; letter-spacing:.2em; font-size:20px; text-align:center; }
-.progress { height:6px; margin-top:12px; border-radius:3px; background:#0d1528; overflow:hidden; }
+.progress { cursor:pointer; height:6px; margin-top:12px; border-radius:3px; background:#0d1528; overflow:hidden; }
 .progress > div { height:100%; width:0; background:var(--teal); }
 ol, ul { margin:0; padding:0; list-style:none; }
 #queue li, #playlists li { display:flex; align-items:center; gap:10px; padding:8px 0; border-top:1px solid var(--line); }
@@ -198,9 +239,9 @@ select { font:inherit; padding:8px 10px; border-radius:8px; border:1px solid var
 pre.output, pre.logs { margin:12px 0 0; padding:10px 12px; border-radius:8px; border:1px solid var(--line); background:#0d1528; color:var(--text); font:12.5px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space:pre-wrap; overflow-wrap:anywhere; overflow:auto; }
 pre.output { max-height:220px; }
 pre.logs { max-height:380px; }
-#cogs li, #channels li { display:flex; align-items:center; gap:10px; padding:8px 0; border-top:1px solid var(--line); }
-#cogs li:first-child, #channels li:first-child { border-top:0; }
-#cogs .t, #channels .t { flex:1; min-width:0; overflow-wrap:anywhere; }
+#blocked-users li, #blocked-words li, #cogs li, #channels li { display:flex; align-items:center; gap:10px; padding:8px 0; border-top:1px solid var(--line); }
+#blocked-users li:first-child, #blocked-words li:first-child, #cogs li:first-child, #channels li:first-child { border-top:0; }
+#blocked-users .t, #blocked-words .t, #cogs .t, #channels .t { flex:1; min-width:0; overflow-wrap:anywhere; }
 #station-editor li { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 0; border-top:1px solid var(--line); }
 #station-editor li:first-child { border-top:0; }
 #station-editor .n { color:var(--sub); width:2em; text-align:right; flex:none; }
@@ -280,7 +321,7 @@ export const APP_JS = String.raw`
       var lines = (r.body && r.body.replies && r.body.replies.length) ? r.body.replies : (r.body && r.body.error ? [r.body.error] : ['Done.']);
       say(lines);
       showOutput(lines);
-      return Promise.all([refresh(), tab === 'admin' ? refreshAdmin(false) : null]);
+      return refresh().then(function () { return tab === 'admin' ? refreshAdmin(false) : null; });
     }).catch(function () {
       var lines = ['Lost contact with the bot. If it is restarting, sign in again in a few seconds.'];
       say(lines);
@@ -317,8 +358,10 @@ export const APP_JS = String.raw`
     var sub = '';
     if (cur && cur.kind === 'radio') sub = 'Live radio' + (cur.liveTitle ? ' - now: ' + cur.liveTitle : '');
     else if (cur) sub = 'In ' + (s.bot.channel || 'a channel');
+    if (cur && cur.auto) sub = 'Auto-DJ  |  ' + sub;
     $('now-sub').textContent = sub;
     $('btn-pause').textContent = a.paused ? 'Resume' : 'Pause';
+    $('btn-repeat').textContent = 'Repeat: ' + (a.repeat || 'off');
     $('btn-pause').disabled = !cur; $('btn-skip').disabled = !cur; $('btn-stop').disabled = !cur && !(a.upcoming && a.upcoming.length);
     var vol = $('volume');
     if (document.activeElement !== vol) { vol.value = String(a.volume); $('volume-label').textContent = String(a.volume); }
@@ -333,9 +376,14 @@ export const APP_JS = String.raw`
     // queue
     var q = $('queue'); clear(q);
     (a.upcoming || []).forEach(function (t, i) {
+      var up = el('button', { type: 'button', class: 'quiet', 'aria-label': 'Move ' + t.title + ' up', text: 'Up', onclick: function () { run(s.prefix + 'move ' + (i + 1) + ' ' + i); } });
+      var down = el('button', { type: 'button', class: 'quiet', 'aria-label': 'Move ' + t.title + ' down', text: 'Down', onclick: function () { run(s.prefix + 'move ' + (i + 1) + ' ' + (i + 2)); } });
+      up.disabled = i === 0;
+      down.disabled = i === a.upcoming.length - 1;
       q.appendChild(el('li', { class: 'queue-item' }, [
         el('span', { class: 'n', text: String(i + 1) }),
         el('span', { class: 't', text: t.title + (t.kind === 'radio' ? ' [radio]' : (t.durationSec !== undefined && t.durationSec !== null ? ' [' + fmt(t.durationSec) + ']' : '')) }),
+        up, down,
         el('button', { type: 'button', class: 'quiet', 'aria-label': 'Remove ' + t.title, text: 'Remove', onclick: function () { run(s.prefix + 'remove ' + (i + 1)); } })
       ]));
     });
@@ -453,6 +501,68 @@ export const APP_JS = String.raw`
       if (depth < 8) (byParent[c.id] || []).forEach(function (k) { add(k, depth + 1); });
     }
     o.channels.forEach(function (c) { if (c.parentId === '0' || !known[c.parentId]) add(c, 0); });
+    renderAutoDj();
+    renderTroll();
+  }
+
+  // Rebuild a drop-down only when its choices change, so one the person has open is not disturbed.
+  function setOptions(select, opts, current) {
+    var sig = opts.map(function (o) { return o.value + '|' + o.label; }).join('\n');
+    if (select.getAttribute('data-sig') !== sig) {
+      var keep = select.value;
+      clear(select);
+      opts.forEach(function (o) { select.appendChild(el('option', { value: o.value, text: o.label })); });
+      select.setAttribute('data-sig', sig);
+      if (keep && opts.some(function (o) { return o.value === keep; })) select.value = keep;
+    }
+    // follow what the bot is set to, unless the person has just picked something else and not applied it yet
+    if (current !== undefined && select.getAttribute('data-touched') !== '1' && opts.some(function (o) { return o.value === current; })) select.value = current;
+  }
+
+  function renderAutoDj() {
+    var a = (state && state.audio) || {};
+    var d = a.autoDj || { enabled: false, source: '', sourceName: '' };
+    var opts = [];
+    (state.stations || []).forEach(function (x) { opts.push({ value: 'radio:' + x.key, label: 'Radio: ' + x.name }); });
+    (state.playlists || []).forEach(function (x) { opts.push({ value: 'playlist:' + x.name, label: 'Playlist: ' + x.name }); });
+    if (!opts.length) opts.push({ value: '', label: 'Nothing to choose from yet' });
+    setOptions($('autodj-source'), opts, d.source);
+    $('autodj-status').textContent = 'Auto-DJ is ' + (d.enabled ? 'ON' : 'off') + '  |  Source: ' + (d.sourceName || 'none chosen yet') + '  |  24/7 mode is ' + (a.stay ? 'ON' : 'off');
+    $('btn-autodj').textContent = d.enabled ? 'Turn Auto-DJ off' : 'Turn Auto-DJ on';
+    $('btn-autodj').disabled = !d.enabled && !d.source;
+    $('btn-stay').textContent = a.stay ? 'Turn 24/7 mode off' : 'Turn 24/7 mode on';
+  }
+
+  function renderTroll() {
+    var t = overview.troll, prefix = state.prefix;
+    $('troll-limit').textContent = !t ? 'Troll control is not available (the audio cog is not loaded).'
+      : (t.maxQueuePerUser ? 'Each person may have ' + t.maxQueuePerUser + ' tracks queued at once.' : 'There is no limit on how many tracks one person can queue. Set audio.maxQueuePerUser in config.json to add one.');
+    var users = t ? t.users : [], words = t ? t.words : [];
+
+    var ul = $('blocked-users'); clear(ul);
+    users.forEach(function (b) {
+      var left = b.until ? '  (' + Math.max(1, Math.ceil((b.until - Date.now()) / 60000)) + ' min left)' : '';
+      ul.appendChild(el('li', { class: 'blocked-item' }, [
+        el('span', { class: 't', text: b.name + left }),
+        el('button', { type: 'button', class: 'quiet', 'aria-label': 'Unblock ' + b.name, text: 'Unblock', onclick: function () { run(prefix + 'unblock ' + b.name); } })
+      ]));
+    });
+    $('blocked-users-empty').hidden = users.length > 0;
+
+    var wl = $('blocked-words'); clear(wl);
+    words.forEach(function (w) {
+      wl.appendChild(el('li', { class: 'blocked-item' }, [
+        el('span', { class: 't', text: w }),
+        el('button', { type: 'button', class: 'quiet', 'aria-label': 'Allow the word ' + w, text: 'Remove', onclick: function () { run(prefix + 'unblockword ' + w); } })
+      ]));
+    });
+    $('blocked-words-empty').hidden = words.length > 0;
+
+    var opts = [];
+    overview.channels.forEach(function (c) { c.users.forEach(function (u) { opts.push({ value: String(u.id), label: u.name + '  (' + c.name + ')' }); }); });
+    if (!opts.length) opts.push({ value: '', label: 'Nobody is online' });
+    setOptions($('block-user'), opts);
+    $('btn-block').disabled = !opts[0].value;
   }
 
   function refreshLogs() {
@@ -579,6 +689,39 @@ export const APP_JS = String.raw`
     if (confirm('Restart the bot? Music stops for a few seconds, and everyone has to sign in to this page again.')) run(state.prefix + 'restart');
   });
   $('btn-home').addEventListener('click', function () { run(state.prefix + 'leave'); });
+  $('btn-repeat').addEventListener('click', function () {
+    var next = { off: 'track', track: 'queue', queue: 'off' }[(state.audio && state.audio.repeat) || 'off'];
+    run(state.prefix + 'repeat ' + next);
+  });
+  $('progress-wrap').addEventListener('click', function (e) {
+    var cur = state && state.audio && state.audio.current;
+    if (!cur || cur.kind === 'radio' || !cur.durationSec) return;
+    var rect = this.getBoundingClientRect();
+    if (!rect.width) return;
+    var frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    run(state.prefix + 'seek ' + Math.min(Math.floor(frac * cur.durationSec), cur.durationSec - 1));
+  });
+  $('autodj-source').addEventListener('change', function () { this.setAttribute('data-touched', '1'); });
+  $('btn-autodj').addEventListener('click', function () { run(state.prefix + 'autodj ' + (state.audio.autoDj && state.audio.autoDj.enabled ? 'off' : 'on')); });
+  $('btn-autodj-set').addEventListener('click', function () {
+    var m = /^(radio|playlist):(.+)$/.exec($('autodj-source').value);
+    if (!m) return;
+    $('autodj-source').removeAttribute('data-touched');
+    run(state.prefix + 'autodj source ' + m[1] + ' ' + m[2]);
+  });
+  $('btn-stay').addEventListener('click', function () { run(state.prefix + 'stay ' + (state.audio.stay ? 'off' : 'on')); });
+  $('btn-block').addEventListener('click', function () {
+    var id = $('block-user').value, mins = Number($('block-minutes').value);
+    if (!/^[0-9]+$/.test(id)) return;
+    run(state.prefix + 'block #' + id + (mins > 0 ? ' ' + mins : ''));
+  });
+  $('word-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var w = $('word-input').value.trim();
+    if (!w) return;
+    $('word-input').value = '';
+    run(state.prefix + 'blockword ' + w);
+  });
   $('btn-log-refresh').addEventListener('click', function () { refreshLogs(); });
   $('log-level').addEventListener('change', function () { refreshLogs(); });
   $('btn-st-add').addEventListener('click', function () {

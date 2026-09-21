@@ -1,6 +1,7 @@
 import { closeSync, copyFileSync, existsSync, fstatSync, openSync, readFileSync, readdirSync, readSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildConfig, ConfigError } from '../../config.js';
+import { AUDIO_SERVICE, type AudioService } from '../../core/services.js';
 import type { BotApi } from '../../core/types.js';
 import { errMessage } from '../../util/text.js';
 import { writeJsonAtomic } from '../../util/fs.js';
@@ -175,6 +176,7 @@ export function createAdminApi(bot: BotApi): AdminApi {
     overview() {
       const here = bot.adapter.selfChannelId();
       const channels = bot.adapter.channels();
+      const audio = bot.services.get<AudioService>(AUDIO_SERVICE);
       return {
         version: BOT_VERSION,
         tsLib: tsLibVersion(),
@@ -187,8 +189,10 @@ export function createAdminApi(bot: BotApi): AdminApi {
           id: String(c.id),
           name: c.name,
           parentId: String(c.parentId),
-          users: bot.adapter.usersInChannel(c.id).map((u) => ({ name: u.name })),
+          // the client number (not the unique ID) lets the page ask the bot about one particular person
+          users: bot.adapter.usersInChannel(c.id).map((u) => ({ id: u.id, name: u.name })),
         })),
+        troll: audio?.troll?.() ?? null,
       };
     },
 

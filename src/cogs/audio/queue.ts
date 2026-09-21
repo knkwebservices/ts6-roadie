@@ -9,6 +9,8 @@ export interface Track {
   durationSec?: number;
   requesterUid: string;
   requesterName: string;
+  /** Picked by Auto-DJ, not asked for by a person. */
+  auto?: boolean;
 }
 
 /** Play queue: the track currently playing plus an ordered list of what's next. */
@@ -49,6 +51,20 @@ export class TrackQueue {
   remove(position: number): Track | undefined {
     if (!Number.isInteger(position) || position < 1 || position > this.#upcoming.length) return undefined;
     return this.#upcoming.splice(position - 1, 1)[0];
+  }
+
+  /** Put the queued track at 1-based position `from` at position `to`, moving the ones in between. */
+  move(from: number, to: number): Track | undefined {
+    const n = this.#upcoming.length;
+    if (![from, to].every((x) => Number.isInteger(x) && x >= 1 && x <= n)) return undefined;
+    const [t] = this.#upcoming.splice(from - 1, 1);
+    this.#upcoming.splice(to - 1, 0, t!);
+    return t;
+  }
+
+  /** Make this the track that is playing now (used to play one again). */
+  setCurrent(t: Track): void {
+    this.current = t;
   }
 
   shuffle(random: () => number = Math.random): void {
