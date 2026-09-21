@@ -62,6 +62,19 @@ export interface Rig extends Harness {
   player: FakePlayer;
   resolveCalls: string[];
   setResolver(fn: (q: string) => Promise<MediaInfo[]>): void;
+  /** What the fake YouTube check, search and updater were asked, and how they answer. */
+  yt: {
+    searchCalls: string[];
+    search: (q: string) => Promise<MediaInfo[]>;
+    health: { ok: boolean; message: string };
+    healthCalls: number;
+    update: { ok: boolean; output: string };
+    updateCalls: number;
+    /** How long the fake updater takes (ms). */
+    updateDelayMs: number;
+    /** The version the fake yt-dlp reports. */
+    version: string;
+  };
 }
 
 const audioEntry = resolve(import.meta.dirname, '../src/cogs/audio/index.ts');
@@ -71,13 +84,37 @@ export async function makeRig(configOver: Record<string, unknown> = {}): Promise
   const resolveCalls: string[] = [];
   const radio: RadioListener[] = [];
   let resolver: (q: string) => Promise<MediaInfo[]> = async (q) => [{ title: `Song for "${q}"`, url: `https://www.youtube.com/watch?v=${encodeURIComponent(q)}`, durationSec: 200 }];
+  const yt: Rig['yt'] = {
+    searchCalls: [],
+    search: async (q) => [1, 2, 3].map((n) => ({ title: `${q} result ${n}`, url: `https://www.youtube.com/watch?v=${encodeURIComponent(q)}${n}`, durationSec: 100 * n, by: `Channel ${n}` })),
+    health: { ok: true, message: 'YouTube works (found "Me at the zoo")' },
+    healthCalls: 0,
+    update: { ok: true, output: 'Updated yt-dlp to 2099.01.01' },
+    updateCalls: 0,
+    updateDelayMs: 0,
+    version: 'test',
+  };
   const deps: AudioDeps = {
     resolveMedia: async (q) => {
       resolveCalls.push(q);
       return resolver(q);
     },
     createPlayer: () => player,
-    toolVersion: async () => 'test',
+    toolVersion: async (cmd) => (/yt-dlp/i.test(cmd) ? yt.version : 'test'),
+    searchMedia: async (q) => {
+      yt.searchCalls.push(q);
+      return yt.search(q);
+    },
+    checkYoutube: async () => {
+      yt.healthCalls++;
+      return { ...yt.health, ms: 1200 };
+    },
+    updateYtdlp: async () => {
+      yt.updateCalls++;
+      if (yt.updateDelayMs) await new Promise((res) => setTimeout(res, yt.updateDelayMs));
+      yt.version = '2099.01.01';
+      return yt.update;
+    },
     startRadioTitles: (url, onTitle) => {
       const l: RadioListener = { url, emit: onTitle, stopped: false };
       radio.push(l);
@@ -97,7 +134,7 @@ export async function makeRig(configOver: Record<string, unknown> = {}): Promise
         export default (bot) => createAudioCog(bot, globalThis.__audioDeps);`,
     },
   });
-  return { ...h, player, radio, resolveCalls, setResolver: (fn) => (resolver = fn) };
+  return { ...h, player, radio, resolveCalls, setResolver: (fn) => (resolver = fn), yt };
 }
 
 export const sentTexts = (r: Rig) => r.adapter.sent.map((s) => s.text);

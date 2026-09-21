@@ -76,6 +76,40 @@ export interface TrollSettings {
   maxQueuePerUser: number;
 }
 
+/** One thing that was played. `id` stays the same for good, so "play again" always finds it. */
+export interface HistoryEntry {
+  id: number;
+  /** When it started, in ms since 1970. */
+  at: number;
+  kind: 'media' | 'radio';
+  title: string;
+  url: string;
+  durationSec?: number;
+  /** Who asked for it (or "Auto-DJ"). */
+  byName: string;
+  /** Auto-DJ picked it. */
+  auto?: boolean;
+}
+
+/** One result of a search. */
+export interface SearchResult {
+  title: string;
+  url: string;
+  durationSec?: number;
+  /** The channel that uploaded it. */
+  by?: string;
+}
+
+/** The tools the bot depends on, and whether YouTube is working. */
+export interface ToolsInfo {
+  ytdlp: string;
+  ffmpeg: string;
+  /** The last YouTube check, if one has been run. */
+  youtube?: { ok: boolean; message: string; at: number };
+  /** yt-dlp is being updated right now. */
+  updating: boolean;
+}
+
 export const PLAYLISTS_SERVICE = 'playlists';
 
 export interface PlaylistsService {
@@ -105,4 +139,10 @@ export interface AudioService {
   blocked(uid: string): boolean;
   /** The current troll-control settings, for the dashboard. */
   troll(): TrollSettings;
+  /** Search YouTube for words and return a few results to choose from. Rejects with a message that is safe to show. */
+  search(query: string): Promise<SearchResult[]>;
+  /** The latest things played, newest first. */
+  history(count?: number): HistoryEntry[];
+  /** Tool versions and the last YouTube check (no slow work: it is remembered). */
+  tools(): ToolsInfo;
 }

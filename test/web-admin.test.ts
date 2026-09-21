@@ -338,6 +338,11 @@ const buttonNamed = (page: Page, label: string) => {
   if (!b) throw new Error(`no button "${label}"`);
   return b as HTMLButtonElement;
 };
+/** The page redraws its lists as fresh information arrives, so wait for the button to be there and click it. */
+const clickWhenReady = async (page: Page, label: string): Promise<void> => {
+  await until(() => page.qa('button').some((x) => x.getAttribute('aria-label') === label || x.textContent === label), 3000, `the "${label}" button`);
+  buttonNamed(page, label).click();
+};
 
 test('only admins see the Admin tab', async () => {
   const r = await makeWebRig();
@@ -399,9 +404,9 @@ test('the Admin tab shows health, cogs and channels, and its buttons send ordina
     await until(() => page.sent.includes(`!goto #${CH.a}`), 2000, '!goto');
     await until(() => !page.q('#admin-output').hidden, 2000, 'the reply to show');
 
-    buttonNamed(page, 'Reload voteskip').click();
+    await clickWhenReady(page, 'Reload voteskip');
     await until(() => page.sent.includes('!reload voteskip'), 2000, '!reload');
-    buttonNamed(page, 'Unload voteskip').click();
+    await clickWhenReady(page, 'Unload voteskip');
     await until(() => page.sent.includes('!unload voteskip'), 2000, '!unload');
     // the list follows what really happened
     await until(() => /\[off\]\s+voteskip/.test(page.q('#cogs').textContent!), 4000, 'voteskip to show as off');

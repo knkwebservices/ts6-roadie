@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { JSDOM } from 'jsdom';
-import type { AudioService, AudioState, PlaylistsService, TrollSettings } from '../src/core/services.js';
+import type { AudioService, AudioState, HistoryEntry, PlaylistsService, SearchResult, ToolsInfo, TrollSettings } from '../src/core/services.js';
 import type { WebService } from '../src/cogs/web/index.js';
 import type { TsUser } from '../src/adapter/types.js';
 import { CH, makeBot, makeConfig, until, type Harness } from './helpers.js';
@@ -48,6 +48,13 @@ export interface FakeAudio {
   state: AudioState;
   /** What the Admin tab's Troll control card is shown. Change it before opening the page. */
   troll: TrollSettings;
+  /** What the History card is shown (edit the array before opening the page). */
+  historyList: HistoryEntry[];
+  tools: ToolsInfo;
+  /** People (by unique ID) the fake audio service reports as blocked. */
+  blockedUids: Set<string>;
+  /** Set to answer the page's searches. */
+  setSearch(fn: (q: string) => Promise<SearchResult[]>): void;
 }
 
 export function fakeAudio(over: Partial<AudioState> = {}): FakeAudio {
@@ -58,11 +65,18 @@ export function fakeAudio(over: Partial<AudioState> = {}): FakeAudio {
     queue: async () => {},
     skip: () => true,
     resolve: async () => [],
-    blocked: () => false,
+    blocked: (uid) => blockedUids.has(uid),
     troll: () => troll,
+    search: async (q) => (searchImpl ? searchImpl(q) : []),
+    history: () => historyList,
+    tools: () => toolsInfo,
   };
+  const blockedUids = new Set<string>();
+  let searchImpl: ((q: string) => Promise<SearchResult[]>) | undefined;
+  const historyList: HistoryEntry[] = [];
+  const toolsInfo: ToolsInfo = { ytdlp: '2026.01.01', ffmpeg: '7.0', updating: false };
   const troll: TrollSettings = { users: [], words: [], maxQueuePerUser: 0 };
-  return { svc, state, get troll() { return troll; }, set troll(v) { Object.assign(troll, v); } };
+  return { svc, state, get troll() { return troll; }, set troll(v) { Object.assign(troll, v); }, historyList, tools: toolsInfo, blockedUids, setSearch: (fn) => (searchImpl = fn) };
 }
 
 export interface WebRig extends Harness {

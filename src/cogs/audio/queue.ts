@@ -11,6 +11,8 @@ export interface Track {
   requesterName: string;
   /** Picked by Auto-DJ, not asked for by a person. */
   auto?: boolean;
+  /** A live station that stopped working was swapped for the fallback station (so it is not swapped twice). */
+  fellBack?: boolean;
 }
 
 /** Play queue: the track currently playing plus an ordered list of what's next. */

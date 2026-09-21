@@ -1,17 +1,19 @@
+import { join } from 'node:path';
 import type { TsUser } from '../../adapter/types.js';
 import type { BotApi, Cog, CogFactory, CogManifest, CommandContext } from '../../core/types.js';
-import { AUDIO_SERVICE, PLAYLISTS_SERVICE, type AudioService, type AudioState, type PlaylistsService, type QueueItem, type RepeatMode, type TrollSettings } from '../../core/services.js';
+import { AUDIO_SERVICE, PLAYLISTS_SERVICE, type AudioService, type AudioState, type PlaylistsService, type QueueItem, type RepeatMode, type SearchResult, type ToolsInfo, type TrollSettings } from '../../core/services.js';
 import { Mutex } from '../../util/mutex.js';
-import { errMessage, formatDuration } from '../../util/text.js';
+import { errMessage, formatAgo, formatDuration } from '../../util/text.js';
+import { PlayHistory } from './history.js';
 import { startIcyTitles } from './icy.js';
 import { Player, type PlayerLike, type PlayerOptions } from './player.js';
 import { TrackQueue, type Track } from './queue.js';
 import { parseSeek } from './seek.js';
-import { listStations, resolveMedia, resolveRadio, SourceError, toolVersion, type MediaInfo } from './sources.js';
+import { checkYoutube, listStations, resolveMedia, resolveRadio, searchMedia, SourceError, toolVersion, updateYtdlp, type MediaInfo } from './sources.js';
 
 export const manifest: CogManifest = {
   name: 'audio',
-  version: '1.1.0',
+  version: '1.2.0',
   description: 'Music: YouTube/links + radio, follows whoever calls it',
 };
 
@@ -20,6 +22,9 @@ export interface AudioDeps {
   resolveMedia: typeof resolveMedia;
   createPlayer: (opts: PlayerOptions) => PlayerLike;
   toolVersion: typeof toolVersion;
+  searchMedia: typeof searchMedia;
+  checkYoutube: typeof checkYoutube;
+  updateYtdlp: typeof updateYtdlp;
   /** Start reading a radio station's song titles. Returns a function that stops. */
   startRadioTitles: (url: string, onTitle: (title: string) => void, note: (message: string) => void) => () => void;
 }
@@ -28,6 +33,9 @@ const defaultDeps: AudioDeps = {
   resolveMedia,
   createPlayer: (o) => new Player(o),
   toolVersion,
+  searchMedia,
+  checkYoutube,
+  updateYtdlp,
   startRadioTitles: (url, onTitle, note) => startIcyTitles(url, { onTitle, onNote: note }),
 };
 
@@ -62,7 +70,6 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
   let unprovide: (() => void) | undefined;
   /** The song a radio station is announcing right now (only while a radio track plays). */
   let liveTitle: string | undefined;
-  let versionCache: { at: number; text: string } | undefined;
   let repeat: RepeatMode = 'off';
   /** Set by !seek: the position to resume the same track from once the current run has stopped. */
   let pendingSeek: number | undefined;
@@ -74,6 +81,16 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
   let autoDjBusy = false;
   let autoDjWarned = '';
   let lastAutoUrl = '';
+  const history = new PlayHistory(join(bot.dataDir, 'history.json'));
+  /** What each person's last !search found, so !pick <number> knows what they meant. */
+  const searchResults = new Map<string, { at: number; items: MediaInfo[] }>();
+  let toolInfo: { ytdlp: string; ffmpeg: string; at: number } | undefined;
+  let lastHealth: { ok: boolean; message: string; at: number } | undefined;
+  let healthFailStreak = 0;
+  let updatingYtdlp = false;
+  let healthTimer: NodeJS.Timeout | undefined;
+  let healthFirstTimer: NodeJS.Timeout | undefined;
+  let healthRetryTimer: NodeJS.Timeout | undefined;
 
   const pl = (): PlayerLike => {
     if (!player) throw new Error('audio cog is not loaded');
@@ -186,6 +203,43 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
     if (hits.length === 1) return { user: hits[0]! };
     if (hits.length === 0) return { problem: `I can only find people who are online now, and nobody is called "${want}".` };
     return { problem: `More than one person fits: ${hits.map((u) => `${u.name} (#${u.id})`).join(', ')}. Use the #number.` };
+  }
+
+  // ---- keeping it working: tool versions and the YouTube check ------------------------
+
+  /** Versions of yt-dlp and ffmpeg, looked up at most every five minutes (or when forced). */
+  async function refreshTools(force = false): Promise<NonNullable<typeof toolInfo>> {
+    const now = Date.now();
+    if (!toolInfo || force || now - toolInfo.at > 300_000) {
+      const [ytdlp, ffmpeg] = await Promise.all([deps.toolVersion(cfg.ytdlpPath, ['--version']), deps.toolVersion(cfg.ffmpegPath, ['-version'])]);
+      toolInfo = { ytdlp, ffmpeg, at: now };
+    }
+    return toolInfo;
+  }
+
+  function tellAdmins(text: string): void {
+    for (const u of adapter.users()) {
+      if (bot.isAdmin(u.uid)) adapter.sendPrivate(u.id, text).catch((e) => log.debug(`could not tell ${u.name}: ${errMessage(e)}`));
+    }
+  }
+
+  /** Run the YouTube check. A failure is checked once more a few minutes later before the admins are told. */
+  async function runHealthCheck(retryLater = true): Promise<{ ok: boolean; message: string; ms: number }> {
+    const r = await deps.checkYoutube(cfg);
+    lastHealth = { ok: r.ok, message: r.message, at: Date.now() };
+    if (r.ok) {
+      if (healthFailStreak >= 2) tellAdmins('YouTube playback is working again.');
+      healthFailStreak = 0;
+    } else {
+      healthFailStreak++;
+      log.warn(`YouTube check failed: ${r.message}`);
+      if (healthFailStreak === 2) tellAdmins(`YouTube playback looks broken: ${r.message}`);
+      if (healthFailStreak === 1 && retryLater && cfg.healthCheckHours > 0) {
+        healthRetryTimer = setTimeout(() => void runHealthCheck(false), Math.min(300_000, cfg.healthCheckHours * 3_600_000));
+        healthRetryTimer.unref?.();
+      }
+    }
+    return r;
   }
 
   // ---- Auto-DJ ------------------------------------------------------------------------
@@ -345,13 +399,18 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
       let t = queue.next();
       let startAt = 0;
       let announce = true;
+      let radioTries = 0;
       while (t) {
         const p = player;
         if (!p) break; // unloaded while the previous track was finishing
         const track = t; // (a fixed name for the closures below; `t` changes as the loop goes on)
         halted = false;
         pendingSeek = undefined;
-        if (announce && cfg.announceNowPlaying && !t.auto) say(`Now playing: ${describe(t)} - requested by ${t.requesterName}`);
+        if (announce) {
+          radioTries = 0;
+          history.add({ kind: t.kind, title: t.title, url: t.url, durationSec: t.durationSec, byName: t.auto ? 'Auto-DJ' : t.requesterName, ...(t.auto ? { auto: true } : {}) });
+          if (cfg.announceNowPlaying && !t.auto) say(`Now playing: ${describe(t)} - requested by ${t.requesterName}`);
+        }
         announce = true;
 
         // A radio station announces its current song inside the stream; read it on the side.
@@ -376,6 +435,34 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
           stopTitles?.();
           liveTitle = undefined;
         }
+        // A live station never ends on purpose, so one that drops (or fails part-way) is reconnected, then swapped for the fallback.
+        const dropped = !halted && track.kind === 'radio' && (r.reason === 'ended' || (r.reason === 'error' && !/was not found|no such file/i.test(r.error ?? '')));
+        if (dropped && r.seconds >= 60) radioTries = 0; // it ran well for a while, so this is a fresh drop
+        if (dropped && radioTries < cfg.radioRetries) {
+          const wait = cfg.radioRetrySeconds * [1, 2.5, 7][Math.min(radioTries, 2)]! * 1000;
+          radioTries++;
+          log.warn(`radio "${track.title}" dropped (${r.reason === 'error' ? (r.error ?? 'error') : 'stream ended'}); reconnecting ${radioTries}/${cfg.radioRetries}`);
+          if (!track.auto && radioTries === 1) say(`"${track.title}" dropped - reconnecting...`);
+          await new Promise((res) => setTimeout(res, wait));
+          if (!halted && player) {
+            announce = false;
+            continue; // the same station again
+          }
+          t = queue.next();
+          continue;
+        }
+        if (dropped) {
+          const fb = cfg.radioFallback && !track.fellBack ? resolveRadio(cfg.radioFallback, cfg) : undefined;
+          if (fb && fb.url !== track.url) {
+            log.warn(`radio "${track.title}" is not working; switching to "${fb.title}"`);
+            if (!track.auto) say(`"${track.title}" isn't working, so I switched to "${fb.title}".`);
+            t = { ...track, id: nextId++, title: fb.title, url: fb.url, durationSec: undefined, fellBack: true };
+            queue.setCurrent(t);
+            radioTries = 0;
+            announce = false;
+            continue;
+          }
+        }
         if (r.reason === 'error') {
           if (track.auto) {
             // Do not chatter about Auto-DJ's own trouble, and do not keep hammering a source that is failing.
@@ -384,6 +471,8 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
           } else {
             say(`Couldn't play "${t.title}": ${r.error ?? 'unknown error'}`);
           }
+        } else if (dropped && !track.auto && cfg.radioRetries > 0) {
+          say(`"${track.title}" stopped and I couldn't reconnect.`);
         }
 
         // What comes next? A seek plays the same track again from the new spot.
@@ -668,6 +757,101 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
         },
       },
       {
+        name: 'search',
+        description: 'Search YouTube and choose from the results: !search <words>, then !pick <number>',
+        usage: `${p}search <words>`,
+        run: async (ctx) => {
+          if (!ctx.isAdmin && isBlocked(ctx.msg.senderUid)) return ctx.reply(blockedNotice(ctx.msg.senderUid));
+          if (!ctx.rest) return ctx.reply(`Usage: ${p}search <words>`);
+          try {
+            const items = await deps.searchMedia(ctx.rest, cfg, 5);
+            const now = Date.now();
+            for (const [k, v] of searchResults) if (now - v.at > 300_000) searchResults.delete(k);
+            if (searchResults.size > 200) searchResults.clear();
+            searchResults.set(ctx.msg.senderUid, { at: now, items });
+            const lines = items.map((it, i) => `${i + 1}. ${it.title} [${formatDuration(it.durationSec)}]${it.by ? ` - ${it.by}` : ''}`);
+            return ctx.reply(`Results for "${ctx.rest.slice(0, 60)}":\n${lines.join('\n')}\nUse ${p}pick <number> to queue one.`);
+          } catch (e) {
+            return ctx.reply(e instanceof SourceError ? e.message : `That didn't work: ${errMessage(e)}`);
+          }
+        },
+      },
+      {
+        name: 'pick',
+        description: 'Queue one of the results from your last !search',
+        usage: `${p}pick <number>`,
+        run: async (ctx) => {
+          const found = searchResults.get(ctx.msg.senderUid);
+          if (!found || Date.now() - found.at > 300_000) return ctx.reply(`Search first: ${p}search <words>`);
+          const n = Number(ctx.args[0]);
+          const it = Number.isInteger(n) ? found.items[n - 1] : undefined;
+          if (!it) return ctx.reply(`Pick a number from 1 to ${found.items.length}.`);
+          await queueRequest(ctx, 'media', async () => [it]);
+        },
+      },
+      {
+        name: 'history',
+        aliases: ['recent'],
+        description: 'Show what was played recently',
+        usage: `${p}history [how many]`,
+        run: (ctx) => {
+          const n = Math.max(1, Math.min(20, Math.floor(Number(ctx.args[0])) || 10));
+          const list = history.recent(n);
+          if (!list.length) return ctx.reply('Nothing has been played yet.');
+          const lines = list.map((e) => `#${e.id} ${e.title}${e.kind === 'radio' ? ' [radio]' : ` [${formatDuration(e.durationSec)}]`} - ${e.byName}, ${formatAgo(e.at)}`);
+          return ctx.reply(`Recently played:\n${lines.join('\n')}\nUse ${p}again <#number> to play one again.`);
+        },
+      },
+      {
+        name: 'again',
+        aliases: ['replay'],
+        description: 'Play something from !history again',
+        usage: `${p}again <number from ${p}history>`,
+        run: async (ctx) => {
+          const id = Number((ctx.args[0] ?? '').replace('#', ''));
+          const e = Number.isInteger(id) ? history.get(id) : undefined;
+          if (!e) return ctx.reply(`I don't have that one. ${p}history lists what was played.`);
+          await queueRequest(ctx, e.kind, async () => [{ kind: e.kind, title: e.title, url: e.url, durationSec: e.durationSec }]);
+        },
+      },
+      {
+        name: 'tools',
+        description: 'Show the yt-dlp and ffmpeg versions and the last YouTube check (bot admins only)',
+        perm: 'admin',
+        run: async (ctx) => {
+          const t = await refreshTools();
+          const h = lastHealth ? `${lastHealth.ok ? 'OK' : 'PROBLEM'} ${formatAgo(lastHealth.at)}: ${lastHealth.message}` : `not checked yet (${p}ytcheck runs it)`;
+          return ctx.reply(`yt-dlp ${t.ytdlp} | ffmpeg ${t.ffmpeg}\nYouTube: ${h}${updatingYtdlp ? '\nyt-dlp is being updated right now.' : ''}`);
+        },
+      },
+      {
+        name: 'ytcheck',
+        description: 'Check that YouTube playback still works (bot admins only)',
+        perm: 'admin',
+        run: async (ctx) => {
+          await ctx.reply('Checking YouTube...');
+          const r = await runHealthCheck(false);
+          return ctx.reply(`${r.ok ? 'OK' : 'PROBLEM'} (${(r.ms / 1000).toFixed(1)} s): ${r.message}`);
+        },
+      },
+      {
+        name: 'ytupdate',
+        description: 'Update yt-dlp, which fixes most YouTube problems (bot admins only)',
+        perm: 'admin',
+        run: async (ctx) => {
+          if (updatingYtdlp) return ctx.reply('yt-dlp is already being updated.');
+          updatingYtdlp = true;
+          try {
+            await ctx.reply('Updating yt-dlp (this can take a minute)...');
+            const r = await deps.updateYtdlp(cfg);
+            const t = await refreshTools(true);
+            return ctx.reply(`${r.ok ? 'Done' : 'The update did not work'}. yt-dlp is now ${t.ytdlp}.\n${r.output}${r.ok ? `\nTip: ${p}ytcheck confirms YouTube works.` : ''}`);
+          } finally {
+            updatingYtdlp = false;
+          }
+        },
+      },
+      {
         name: 'autodj',
         description: 'Play something by itself when the queue is empty and someone is listening (bot admins only)',
         usage: `${p}autodj [on|off|source radio <station>|source playlist <name>]`,
@@ -895,6 +1079,14 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
         watchChannel();
         void autoDjTick();
       }, 5_000);
+      void refreshTools().catch(() => {});
+      if (cfg.healthCheckHours > 0) {
+        const every = cfg.healthCheckHours * 3_600_000;
+        healthTimer = setInterval(() => void runHealthCheck(), every);
+        healthFirstTimer = setTimeout(() => void runHealthCheck(), Math.min(60_000, every / 2)); // a minute after start (sooner if the interval is short)
+        healthTimer.unref?.();
+        healthFirstTimer.unref?.();
+      }
       watchTimer.unref?.();
       unprovide = bot.services.provide<AudioService>(AUDIO_SERVICE, {
         snapshot() {
@@ -929,6 +1121,10 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
           const found = await deps.resolveMedia(input, cfg);
           return found.map((it) => ({ kind: it.kind ?? 'media', title: it.title, url: it.url, durationSec: it.durationSec }));
         },
+        search: async (query): Promise<SearchResult[]> =>
+          (await deps.searchMedia(query, cfg, 5)).map((it) => ({ title: it.title, url: it.url, durationSec: it.durationSec, ...(it.by ? { by: it.by } : {}) })),
+        history: (count = 20) => history.recent(Math.min(50, Math.max(1, Math.floor(count)))),
+        tools: (): ToolsInfo => ({ ytdlp: toolInfo?.ytdlp ?? '...', ffmpeg: toolInfo?.ffmpeg ?? '...', youtube: lastHealth, updating: updatingYtdlp }),
         blocked: (uid) => isBlocked(uid),
         troll: (): TrollSettings => ({
           users: blockList().map((b) => ({ name: b.name, until: b.until })),
@@ -942,6 +1138,9 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
       offLost?.();
       unprovide?.();
       if (watchTimer) clearInterval(watchTimer);
+      if (healthTimer) clearInterval(healthTimer);
+      if (healthFirstTimer) clearTimeout(healthFirstTimer);
+      if (healthRetryTimer) clearTimeout(healthRetryTimer);
       cancelIdle();
       queue.clear();
       player?.dispose();
@@ -950,13 +1149,9 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
 
     async status() {
       const cur = queue.current;
-      const now = Date.now();
-      if (!versionCache || now - versionCache.at > 300_000) {
-        const [yt, ff] = await Promise.all([deps.toolVersion(cfg.ytdlpPath, ['--version']), deps.toolVersion(cfg.ffmpegPath, ['-version'])]);
-        versionCache = { at: now, text: `yt-dlp ${yt} | ffmpeg ${ff}` };
-      }
+      const t = await refreshTools();
       const state = cur && player?.playing ? `playing "${cur.title}"` : 'idle';
-      return `${state} | queue ${queue.size} | repeat ${repeat} | auto-DJ ${autoDj.enabled ? 'on' : 'off'} | 24/7 ${stay ? 'on' : 'off'} | volume ${Math.round((player?.volume ?? 0) * 100)} | ${versionCache.text}`;
+      return `${state} | queue ${queue.size} | repeat ${repeat} | auto-DJ ${autoDj.enabled ? 'on' : 'off'} | 24/7 ${stay ? 'on' : 'off'} | volume ${Math.round((player?.volume ?? 0) * 100)} | yt-dlp ${t.ytdlp} | ffmpeg ${t.ffmpeg}`;
     },
   };
 

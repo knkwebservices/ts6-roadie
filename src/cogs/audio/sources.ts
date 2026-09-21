@@ -9,6 +9,8 @@ export interface MediaInfo {
   url: string;
   durationSec?: number;
   live?: boolean;
+  /** Who uploaded it (a channel name), when the site says. Shown in search results. */
+  by?: string;
 }
 
 /** An error whose message is safe and useful to show to chat users. */
@@ -67,6 +69,8 @@ function friendlyYtdlpError(stderr: string): string {
 }
 
 interface YtEntry {
+  uploader?: string;
+  channel?: string;
   title?: string;
   url?: string;
   webpage_url?: string;
@@ -76,6 +80,50 @@ interface YtEntry {
   live_status?: string;
   ie_key?: string;
   extractor_key?: string;
+}
+
+/** Ask yt-dlp about a link or a "ytsearchN:words" target and turn what it says into playable items. */
+async function ytdlpItems(target: string, cfg: Config['audio'], run: Runner, playlistEnd: string): Promise<MediaInfo[]> {
+  let res;
+  try {
+    res = await run(
+      cfg.ytdlpPath,
+      ['--dump-single-json', '--flat-playlist', '--no-playlist', '--no-warnings', '--socket-timeout', '15', '--playlist-end', playlistEnd, ...cfg.ytdlpExtraArgs, '--', target],
+      { timeoutMs: 45_000 },
+    );
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new SourceError(`yt-dlp was not found (looked for "${cfg.ytdlpPath}"). Ask the bot admin to install it.`);
+    }
+    throw new SourceError((e as Error).message);
+  }
+
+  let data: (YtEntry & { _type?: string; entries?: YtEntry[] }) | undefined;
+  try {
+    data = JSON.parse(res.stdout);
+  } catch {
+    throw new SourceError(friendlyYtdlpError(res.stderr) || 'Nothing came back for that.');
+  }
+  if (!data) throw new SourceError('Nothing came back for that.');
+
+  const entries: YtEntry[] = data._type === 'playlist' ? (data.entries ?? []) : [data];
+  const out: MediaInfo[] = [];
+  for (const e of entries) {
+    if (!e) continue;
+    let url = e.webpage_url ?? e.url;
+    if (!url && e.id && /youtube/i.test(e.ie_key ?? e.extractor_key ?? '')) url = `https://www.youtube.com/watch?v=${e.id}`;
+    if (!url || !isPublicHttpUrl(url)) continue;
+    const live = e.is_live === true || e.live_status === 'is_live';
+    const by = (e.channel ?? e.uploader ?? '').replace(/[\r\n\u0000-\u001f]/g, ' ').trim().slice(0, 60);
+    out.push({
+      title: (e.title ?? url).slice(0, 150),
+      url,
+      durationSec: !live && typeof e.duration === 'number' ? e.duration : undefined,
+      live,
+      ...(by ? { by } : {}),
+    });
+  }
+  return out;
 }
 
 /**
@@ -107,59 +155,76 @@ export async function resolveMedia(input: string, cfg: Config['audio'], run: Run
     target = `ytsearch1:${q}`;
   }
 
-  let res;
-  try {
-    res = await run(
-      cfg.ytdlpPath,
-      [
-        '--dump-single-json',
-        '--flat-playlist',
-        '--no-playlist',
-        '--no-warnings',
-        '--socket-timeout',
-        '15',
-        '--playlist-end',
-        String(cfg.maxPlaylistItems),
-        ...cfg.ytdlpExtraArgs,
-        '--',
-        target,
-      ],
-      { timeoutMs: 45_000 },
-    );
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
-      throw new SourceError(`yt-dlp was not found (looked for "${cfg.ytdlpPath}"). Ask the bot admin to install it.`);
-    }
-    throw new SourceError((e as Error).message);
-  }
-
-  let data: (YtEntry & { _type?: string; entries?: YtEntry[] }) | undefined;
-  try {
-    data = JSON.parse(res.stdout);
-  } catch {
-    throw new SourceError(friendlyYtdlpError(res.stderr) || 'Nothing came back for that.');
-  }
-  if (!data) throw new SourceError('Nothing came back for that.');
-
-  const entries: YtEntry[] = data._type === 'playlist' ? (data.entries ?? []) : [data];
-  const out: MediaInfo[] = [];
-  for (const e of entries) {
-    if (!e) continue;
-    let url = e.webpage_url ?? e.url;
-    if (!url && e.id && /youtube/i.test(e.ie_key ?? e.extractor_key ?? '')) url = `https://www.youtube.com/watch?v=${e.id}`;
-    if (!url || !isPublicHttpUrl(url)) continue;
-    const live = e.is_live === true || e.live_status === 'is_live';
-    out.push({
-      title: (e.title ?? url).slice(0, 150),
-      url,
-      durationSec: !live && typeof e.duration === 'number' ? e.duration : undefined,
-      live,
-    });
-  }
+  const out = await ytdlpItems(target, cfg, run, String(cfg.maxPlaylistItems));
   if (!out.length) throw new SourceError('I could not find anything playable for that.');
   // Show the Spotify song's own name rather than whatever the YouTube upload happens to be called.
   if (spotifyTitle) return [{ ...out[0]!, title: spotifyTitle }];
   return out.slice(0, cfg.maxPlaylistItems);
+}
+
+/**
+ * Look up several YouTube results for some words, so a person can choose one.
+ * Metadata only, like resolveMedia. Links are not searches: use resolveMedia for those.
+ */
+export async function searchMedia(query: string, cfg: Config['audio'], count = 5, run: Runner = runProcess): Promise<MediaInfo[]> {
+  const q = query.trim();
+  if (!q) throw new SourceError('Tell me what to search for.');
+  if (/^https?:\/\//i.test(q)) throw new SourceError('That is a link: use the play command for links, and search for words.');
+  if (q.length > 200 || /[\r\n]/.test(q)) throw new SourceError('That search is too long.');
+  const n = Math.max(1, Math.min(10, Math.floor(count)));
+  const out = await ytdlpItems(`ytsearch${n}:${q}`, cfg, run, String(n));
+  if (!out.length) throw new SourceError('I could not find anything for that.');
+  return out.slice(0, n);
+}
+
+/** The first video ever uploaded to YouTube: short, stable, and never going away. */
+export const HEALTH_CHECK_URL = 'https://www.youtube.com/watch?v=jNQXAC9IVRw';
+
+export interface HealthResult {
+  ok: boolean;
+  /** What was found, or why it failed, in words safe to show. */
+  message: string;
+  ms: number;
+}
+
+/** Can yt-dlp still get information about a YouTube video? (Most breakages, like new blocks or a stale yt-dlp, show up here.) */
+export async function checkYoutube(cfg: Config['audio'], run: Runner = runProcess): Promise<HealthResult> {
+  const t0 = Date.now();
+  try {
+    const [hit] = await resolveMedia(HEALTH_CHECK_URL, { ...cfg, maxPlaylistItems: 1 }, run);
+    return { ok: true, message: `YouTube works (found "${hit!.title}")`, ms: Date.now() - t0 };
+  } catch (e) {
+    const message = e instanceof SourceError ? e.message : `Could not run the check (${(e as Error).message})`;
+    const hint = /not a bot|cookies/i.test(message)
+      ? ' Fix: give yt-dlp a cookies file with audio.ytdlpExtraArgs.'
+      : /javascript runtime/i.test(message)
+        ? ' Fix: add "--js-runtimes", "node" to audio.ytdlpExtraArgs.'
+        : ' Updating yt-dlp often fixes this.';
+    return { ok: false, message: message + hint, ms: Date.now() - t0 };
+  }
+}
+
+export interface UpdateResult {
+  ok: boolean;
+  /** The last lines yt-dlp printed. */
+  output: string;
+}
+
+/** Run yt-dlp's own updater. Works for the standalone yt-dlp; a pip or package-manager install will say to update that way. */
+export async function updateYtdlp(cfg: Config['audio'], run: Runner = runProcess): Promise<UpdateResult> {
+  try {
+    const r = await run(cfg.ytdlpPath, ['-U'], { timeoutMs: 180_000 });
+    const text = `${r.stdout}\n${r.stderr}`
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .slice(-6)
+      .join('\n')
+      .slice(-600);
+    return { ok: r.code === 0, output: text || (r.code === 0 ? 'Done.' : 'yt-dlp printed nothing.') };
+  } catch (e) {
+    return { ok: false, output: (e as NodeJS.ErrnoException).code === 'ENOENT' ? `yt-dlp was not found (looked for "${cfg.ytdlpPath}").` : (e as Error).message };
+  }
 }
 
 // ---- radio ------------------------------------------------------------------------------

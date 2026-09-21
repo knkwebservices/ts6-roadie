@@ -86,3 +86,12 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 export function errMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
+
+/** "just now", "5 min ago", "3 h ago", "2 d ago": how long ago something was. */
+export function formatAgo(thenMs: number, nowMs = Date.now()): string {
+  const s = Math.max(0, Math.floor((nowMs - thenMs) / 1000));
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86_400) return `${Math.floor(s / 3600)} h ago`;
+  return `${Math.floor(s / 86_400)} d ago`;
+}

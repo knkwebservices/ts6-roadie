@@ -13,6 +13,8 @@ const MAX_STATIONS_BODY_BYTES = 32 * 1024;
 const COMMAND_LIMIT = { count: 10, windowMs: 5_000 };
 /** Reading the Admin tab (health, log lines) is cheap, so it gets a more generous allowance. */
 const READ_LIMIT = { count: 30, windowMs: 5_000 };
+/** A search starts yt-dlp and takes a couple of seconds, so it is limited more tightly. */
+const SEARCH_LIMIT = { count: 3, windowMs: 10_000 };
 
 /** Each path answers one kind of request. */
 const ROUTES: Record<string, 'GET' | 'POST'> = {
@@ -20,6 +22,8 @@ const ROUTES: Record<string, 'GET' | 'POST'> = {
   '/api/logout': 'POST',
   '/api/state': 'GET',
   '/api/command': 'POST',
+  '/api/search': 'POST',
+  '/api/history': 'GET',
   '/api/admin/overview': 'GET',
   '/api/admin/logs': 'GET',
   '/api/admin/stations': 'GET',
@@ -36,6 +40,10 @@ export interface WebDeps {
   isAdmin(uid: string): boolean;
   /** What the Admin tab shows and changes. */
   admin?: AdminApi;
+  /** Search for words on behalf of a signed-in person. */
+  search?(person: Person, query: string): Promise<{ ok: true; results: unknown[] } | { ok: false; error: string; status?: number }>;
+  /** What was played recently (newest first). */
+  history?(): unknown[];
   sessionTtlMs: number;
   log: Log;
 }
@@ -134,6 +142,7 @@ function clientKey(req: http.IncomingMessage): string {
 export async function startWebServer(opts: { host: string; port: number; publicUrl?: string }, deps: WebDeps): Promise<RunningWeb> {
   const commandTimes = new Map<string, number[]>();
   const readTimes = new Map<string, number[]>();
+  const searchTimes = new Map<string, number[]>();
   /** True if this session may go ahead; false if it has used up its allowance for the moment. */
   const allow = (times: Map<string, number[]>, limit: { count: number; windowMs: number }, sid: string): boolean => {
     const now = Date.now();
@@ -215,6 +224,23 @@ export async function startWebServer(opts: { host: string; port: number; publicU
     if (!person) return json(res, 401, { error: 'Sign in first.' });
 
     if (path === '/api/state') return json(res, 200, deps.state(person));
+
+    if (path === '/api/history') {
+      if (!allow(readTimes, READ_LIMIT, sid!)) return json(res, 429, { error: 'Slow down a little.' });
+      return json(res, 200, { history: deps.history?.() ?? [] });
+    }
+
+    if (path === '/api/search') {
+      const body = await readJsonBody(req, res);
+      if (!body) return;
+      const q = typeof body.q === 'string' ? body.q.trim() : '';
+      if (!q || q.length > 200) return json(res, 400, { error: 'Type up to 200 characters to search for.' });
+      if (!deps.search) return json(res, 404, { error: 'Searching is not available.' });
+      // (only a real search uses up the allowance: it is what starts yt-dlp)
+      if (!allow(searchTimes, SEARCH_LIMIT, sid!)) return json(res, 429, { error: 'Slow down a little.' });
+      const found = await deps.search(person, q);
+      return json(res, found.ok ? 200 : (found.status ?? 400), found);
+    }
 
     // ---- the Admin tab: bot admins only, whatever the login rule lets in ----
     if (path.startsWith('/api/admin/')) {

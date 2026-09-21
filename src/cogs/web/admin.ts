@@ -193,6 +193,7 @@ export function createAdminApi(bot: BotApi): AdminApi {
           users: bot.adapter.usersInChannel(c.id).map((u) => ({ id: u.id, name: u.name })),
         })),
         troll: audio?.troll?.() ?? null,
+        tools: audio?.tools?.() ?? null,
       };
     },
 

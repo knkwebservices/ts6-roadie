@@ -125,7 +125,7 @@ test('repeat queue: every track goes to the back after it plays, skipped ones to
 });
 
 test('live radio and failed tracks are never repeated', async () => {
-  const r = await makeRig();
+  const r = await makeRig({ audio: { radioRetries: 0 } }); // (reconnecting a dropped station is tested on its own)
   try {
     const alice = r.adapter.addUser(5, 'Alice', CH.home);
     await say(r, alice, '!repeat track');

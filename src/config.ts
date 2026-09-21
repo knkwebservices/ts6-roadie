@@ -117,6 +117,14 @@ export interface Config {
     };
     /** 24/7 mode: stay in whatever channel the bot is in instead of going home when idle or leaving when alone. */
     stayInChannel: boolean;
+    /** When a live radio stream drops, try to reconnect this many times before giving up (0 = don't retry). */
+    radioRetries: number;
+    /** Seconds before the first reconnect try; later tries wait longer. */
+    radioRetrySeconds: number;
+    /** A station (key, number or name) to switch to when the one playing cannot be kept going. Empty = none. */
+    radioFallback: string;
+    /** Every this many hours, check that YouTube playback still works and tell the online admins if it does not. 0 = never. */
+    healthCheckHours: number;
   };
 }
 
@@ -158,6 +166,10 @@ export const DEFAULT_CONFIG: Config = {
     blockedWords: [],
     autoDj: { enabled: false, source: '' },
     stayInChannel: false,
+    radioRetries: 3,
+    radioRetrySeconds: 2,
+    radioFallback: '',
+    healthCheckHours: 12,
     radioStations: {
       groovesalad: { name: 'SomaFM Groove Salad', url: 'https://ice1.somafm.com/groovesalad-128-mp3' },
       spacestation: { name: 'SomaFM Space Station', url: 'https://ice1.somafm.com/spacestation-128-mp3' },
@@ -272,6 +284,10 @@ export function validateConfig(c: Config): Config {
   need(Array.isArray(c.audio.blockedWords) && c.audio.blockedWords.every((w) => typeof w === 'string' && w.trim().length > 0 && w.length <= 64), 'audio.blockedWords must be a list of words, each 1 to 64 characters');
   need(isObject(c.audio.autoDj) && typeof c.audio.autoDj.enabled === 'boolean' && typeof c.audio.autoDj.source === 'string' && c.audio.autoDj.source.length <= 100, 'audio.autoDj must look like { \"enabled\": false, \"source\": \"radio:groovesalad\" }');
   need(typeof c.audio.stayInChannel === 'boolean', 'audio.stayInChannel must be true or false');
+  need(Number.isInteger(c.audio.radioRetries) && c.audio.radioRetries >= 0 && c.audio.radioRetries <= 20, 'audio.radioRetries must be a whole number from 0 (no retries) to 20');
+  need(typeof c.audio.radioRetrySeconds === 'number' && c.audio.radioRetrySeconds > 0 && c.audio.radioRetrySeconds <= 120, 'audio.radioRetrySeconds must be more than 0 and at most 120');
+  need(typeof c.audio.radioFallback === 'string' && c.audio.radioFallback.length <= 100, 'audio.radioFallback must be a station key, number or name (or empty)');
+  need(typeof c.audio.healthCheckHours === 'number' && c.audio.healthCheckHours >= 0 && c.audio.healthCheckHours <= 720, 'audio.healthCheckHours must be from 0 (never) to 720');
   for (const [key, st] of Object.entries(c.audio.radioStations)) {
     need(isObject(st) && typeof st.name === 'string' && /^https?:\/\//i.test(String(st.url)), `audio.radioStations.${key} needs a name and an http(s) url`);
   }

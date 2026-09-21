@@ -1,12 +1,13 @@
 import { AUDIO_SERVICE, PLAYLISTS_SERVICE, type AudioService, type PlaylistsService } from '../../core/services.js';
 import type { Cog, CogFactory, CogManifest } from '../../core/types.js';
+import { SourceError } from '../audio/sources.js';
 import { createAdminApi } from './admin.js';
 import { WebAuth, type Person } from './auth.js';
 import { startWebServer, type RunningWeb } from './server.js';
 
 export const manifest: CogManifest = {
   name: 'web',
-  version: '1.1.0',
+  version: '1.2.0',
   description: 'A web dashboard for the bot: this machine only, or a public https address through a reverse proxy',
 };
 
@@ -72,6 +73,17 @@ const factory: CogFactory = (bot): Cog => {
           state: stateFor,
           isAdmin: (uid) => bot.isAdmin(uid),
           admin: createAdminApi(bot),
+          search: async (person, q) => {
+            const audio = bot.services.get<AudioService>(AUDIO_SERVICE);
+            if (!audio?.search) return { ok: false, status: 503, error: 'The audio cog is not loaded.' };
+            if (audio.blocked?.(person.uid)) return { ok: false, status: 403, error: 'You are blocked from the music commands.' };
+            try {
+              return { ok: true, results: await audio.search(q) };
+            } catch (e) {
+              return { ok: false, status: 400, error: e instanceof SourceError ? e.message : 'That search did not work.' };
+            }
+          },
+          history: () => bot.services.get<AudioService>(AUDIO_SERVICE)?.history?.(30) ?? [],
           sessionTtlMs: cfg.sessionHours * 3_600_000,
           log,
         },

@@ -67,6 +67,10 @@
     "maxQueuePerUser": 0,
     "blockedWords": [],
     "autoDj": { "enabled": false, "source": "" },
-    "stayInChannel": false
+    "stayInChannel": false,
+    "radioRetries": 3,
+    "radioRetrySeconds": 2,
+    "radioFallback": "",
+    "healthCheckHours": 12
   }
 }

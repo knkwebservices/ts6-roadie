@@ -66,8 +66,11 @@ export const APP_HTML = `<!doctype html>
     <h2>Add music</h2>
     <form id="add-form" class="row" autocomplete="off">
       <input id="add-input" type="text" placeholder="A YouTube, Spotify, SoundCloud or Bandcamp link, or search words" aria-label="Link or search words" required>
+      <button id="btn-search" type="button" class="quiet">Search</button>
       <button type="submit">Add to queue</button>
     </form>
+    <p id="search-note" class="sub" role="status"></p>
+    <ul id="search-results"></ul>
     <h3>Radio</h3>
     <div id="stations" class="row wrap"></div>
   </section>
@@ -86,6 +89,12 @@ export const APP_HTML = `<!doctype html>
     <h2>Playlists</h2>
     <ul id="playlists"></ul>
     <p id="playlists-empty" class="sub">No saved playlists yet. Save one in chat with !playlist save &lt;name&gt;.</p>
+  </section>
+
+  <section class="card">
+    <h2>Recently played</h2>
+    <ul id="history"></ul>
+    <p id="history-empty" class="sub">Nothing has been played yet.</p>
   </section>
 
   <section class="card">
@@ -108,6 +117,17 @@ export const APP_HTML = `<!doctype html>
     <section class="card">
       <h2>Cogs</h2>
       <ul id="cogs"></ul>
+    </section>
+
+    <section class="card">
+      <h2>Tools</h2>
+      <p id="tools-line" class="sub">Loading...</p>
+      <p id="tools-youtube" class="sub"></p>
+      <div class="row wrap">
+        <button id="btn-ytcheck" type="button" class="quiet">Test YouTube</button>
+        <button id="btn-ytupdate" type="button" class="quiet">Update yt-dlp</button>
+      </div>
+      <p class="sub">If music stops playing, run the test first. Updating yt-dlp fixes most YouTube problems and takes about a minute. The bot also tests YouTube by itself and tells the admins who are online if it stops working.</p>
     </section>
 
     <section class="card">
@@ -225,10 +245,10 @@ label { color:var(--sub); font-size:14px; }
 .progress { cursor:pointer; height:6px; margin-top:12px; border-radius:3px; background:#0d1528; overflow:hidden; }
 .progress > div { height:100%; width:0; background:var(--teal); }
 ol, ul { margin:0; padding:0; list-style:none; }
-#queue li, #playlists li { display:flex; align-items:center; gap:10px; padding:8px 0; border-top:1px solid var(--line); }
-#queue li:first-child, #playlists li:first-child { border-top:0; }
+#queue li, #playlists li, #search-results li, #history li { display:flex; align-items:center; gap:10px; padding:8px 0; border-top:1px solid var(--line); }
+#queue li:first-child, #playlists li:first-child, #search-results li:first-child, #history li:first-child { border-top:0; }
 #queue .n { color:var(--sub); width:2em; text-align:right; flex:none; }
-#queue .t, #playlists .t { flex:1; min-width:0; overflow-wrap:anywhere; }
+#queue .t, #playlists .t, #search-results .t, #history .t { flex:1; min-width:0; overflow-wrap:anywhere; }
 .log { max-height:200px; overflow:auto; font-size:14px; color:var(--sub); }
 .log li { padding:3px 0; }
 .tabs { display:flex; gap:8px; }
@@ -266,6 +286,7 @@ export const APP_JS = String.raw`
   var draft = null;        // the radio station list being edited
   var draftDirty = false;
   var maxStations = 30;
+  var lastTrackId;        // when this changes, the "recently played" list is fetched again
 
   // ---- tiny DOM helpers. Text is only ever set with textContent / text nodes. ----
   function el(tag, props, kids) {
@@ -283,6 +304,13 @@ export const APP_JS = String.raw`
     return e;
   }
   function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+  function ago(ms) {
+    var s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+    if (s < 60) return 'just now';
+    if (s < 3600) return Math.floor(s / 60) + ' min ago';
+    if (s < 86400) return Math.floor(s / 3600) + ' h ago';
+    return Math.floor(s / 86400) + ' d ago';
+  }
   function fmt(sec) {
     if (sec === undefined || sec === null || !isFinite(sec)) return '';
     sec = Math.max(0, Math.round(sec));
@@ -351,6 +379,10 @@ export const APP_JS = String.raw`
     if (!s.bot.connected) msg = 'The bot is not connected to TeamSpeak right now.';
     else if (!s.connected) msg = 'You are not connected to TeamSpeak right now, so the buttons will not work until you are.';
     banner.hidden = !msg; banner.textContent = msg;
+
+    // recently played changes whenever a new track starts
+    var trackId = a.current ? a.current.id : null;
+    if (trackId !== lastTrackId) { lastTrackId = trackId; loadHistory(); }
 
     // now playing
     var cur = a.current;
@@ -433,6 +465,43 @@ export const APP_JS = String.raw`
     });
   }
 
+  // ---- recently played, and searching ----
+  function loadHistory() {
+    return api('/api/history').then(function (r) {
+      if (r.status === 401) return showLogin();
+      if (r.status !== 200) return;
+      var list = $('history'); clear(list);
+      var items = (r.body && r.body.history) || [];
+      items.forEach(function (e) {
+        var what = e.title + (e.kind === 'radio' ? ' [radio]' : (e.durationSec ? ' [' + fmt(e.durationSec) + ']' : ''));
+        list.appendChild(el('li', { class: 'history-item' }, [
+          el('span', { class: 't', text: what + '  -  ' + e.byName + ', ' + ago(e.at) }),
+          el('button', { type: 'button', class: 'quiet', 'aria-label': 'Play ' + e.title + ' again', text: 'Play again', onclick: function () { run(state.prefix + 'again ' + e.id); } })
+        ]));
+      });
+      $('history-empty').hidden = items.length > 0;
+    }).catch(function () {});
+  }
+
+  function doSearch() {
+    var q = $('add-input').value.trim();
+    if (!q) return;
+    var note = $('search-note'), list = $('search-results');
+    note.className = 'sub'; note.textContent = 'Searching...'; clear(list);
+    return api('/api/search', { q: q }).then(function (r) {
+      if (r.status === 401) return showLogin();
+      if (r.status !== 200) { note.className = 'sub error'; note.textContent = (r.body && r.body.error) || 'That search did not work.'; return; }
+      var results = r.body.results || [];
+      note.textContent = results.length ? 'Results for "' + q + '":' : 'Nothing found.';
+      results.forEach(function (it) {
+        list.appendChild(el('li', { class: 'search-item' }, [
+          el('span', { class: 't', text: it.title + (it.durationSec ? ' [' + fmt(it.durationSec) + ']' : '') + (it.by ? '  -  ' + it.by : '') }),
+          el('button', { type: 'button', class: 'quiet', 'aria-label': 'Add ' + it.title, text: 'Add', onclick: function () { run(state.prefix + 'play ' + it.url); } })
+        ]));
+      });
+    }).catch(function () { note.className = 'sub error'; note.textContent = 'Lost contact with the bot. Try again.'; });
+  }
+
   // ---- Admin tab: only bot admins see it, and the server refuses everyone else ----
   function applyTab(name) {
     tab = name;
@@ -501,8 +570,19 @@ export const APP_JS = String.raw`
       if (depth < 8) (byParent[c.id] || []).forEach(function (k) { add(k, depth + 1); });
     }
     o.channels.forEach(function (c) { if (c.parentId === '0' || !known[c.parentId]) add(c, 0); });
+    renderTools();
     renderAutoDj();
     renderTroll();
+  }
+
+  function renderTools() {
+    var t = overview.tools;
+    $('tools-line').textContent = t ? 'yt-dlp ' + t.ytdlp + '  |  ffmpeg ' + t.ffmpeg + (t.updating ? '  |  updating now...' : '') : 'Tools are not available (the audio cog is not loaded).';
+    var y = t && t.youtube;
+    $('tools-youtube').className = 'sub' + (y && !y.ok ? ' error' : '');
+    $('tools-youtube').textContent = y ? 'YouTube: ' + (y.ok ? 'OK' : 'PROBLEM') + ', checked ' + ago(y.at) + '  -  ' + y.message : (t ? 'YouTube has not been checked yet.' : '');
+    $('btn-ytcheck').disabled = !t;
+    $('btn-ytupdate').disabled = !t || t.updating;
   }
 
   // Rebuild a drop-down only when its choices change, so one the person has open is not disturbed.
@@ -689,6 +769,11 @@ export const APP_JS = String.raw`
     if (confirm('Restart the bot? Music stops for a few seconds, and everyone has to sign in to this page again.')) run(state.prefix + 'restart');
   });
   $('btn-home').addEventListener('click', function () { run(state.prefix + 'leave'); });
+  $('btn-search').addEventListener('click', function () { doSearch(); });
+  $('btn-ytcheck').addEventListener('click', function () { run(state.prefix + 'ytcheck'); });
+  $('btn-ytupdate').addEventListener('click', function () {
+    if (confirm('Update yt-dlp now? It takes about a minute, and music may hiccup while it runs.')) run(state.prefix + 'ytupdate');
+  });
   $('btn-repeat').addEventListener('click', function () {
     var next = { off: 'track', track: 'queue', queue: 'off' }[(state.audio && state.audio.repeat) || 'off'];
     run(state.prefix + 'repeat ' + next);

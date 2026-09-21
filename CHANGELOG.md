@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.0
+- **Keeping it working.** A new **Tools** card on the dashboard's Admin tab (and `!tools`, `!ytcheck`, `!ytupdate` in chat, admins only) shows the yt-dlp and ffmpeg versions, tests whether YouTube playback still works, and updates yt-dlp with one click. The check explains the usual failures (a bot check needing cookies, a missing JavaScript runtime, a stale yt-dlp) and says what to do.
+- **The bot now tests YouTube by itself** (`audio.healthCheckHours`, default every 12 hours, `0` = never). A failure is checked again a few minutes later, and only if it is still failing are the online admins told, once, by private message; they are told again when it recovers. A single hiccup bothers nobody.
+- **A radio station that drops is reconnected.** `audio.radioRetries` (default 3) and `audio.radioRetrySeconds` (default 2, later tries wait longer) control it, listeners are told once, and a problem that retrying cannot fix (a missing ffmpeg) is not retried. `audio.radioFallback` names a station to switch to when one will not come back. Auto-DJ reconnects silently.
+- **Search and pick:** `!search <words>` lists five YouTube results and `!pick <number>` queues one. On the dashboard, a Search button beside the Add music box shows results with an Add button each.
+- **Play history:** `!history` (`!recent`) shows what was played, newest first, and `!again <#number>` plays one again (subject to the same limits and blocks as any request). The dashboard has a Recently played card with a Play again button. Kept in `data/history.json`: the last 300 requested tracks, plus the last 100 Auto-DJ picks kept apart so a long night of them cannot push out what people asked for. Repeats and seeks are not counted as new plays.
+- `!status` now reads the tool versions from the same cached check.
+- Development: the audio tests' shared pieces (`test/audio-helpers.ts`) now include fake search, check and update tools.
+
 ## 0.10.0
 - **Queue control:** `!seek <1:30 | 90 | +30 | -30>` jumps within the current track (not live radio), `!repeat [off|track|queue]` (`!loop`) repeats the track or the whole queue, and `!move <from> <to>` reorders queued tracks. Live radio, failed tracks and Auto-DJ picks are never repeated, and a skip always moves on. On the dashboard: click the progress bar to jump, a Repeat button, and Up/Down buttons on queued tracks.
 - **Auto-DJ** (admins): `!autodj on|off` and `!autodj source radio <station>` or `!autodj source playlist <name>`. When the queue is empty and someone is in the bot's channel, it plays a station, or a random track from a playlist (never the same one twice in a row). A person's request always goes ahead of it, `!stop` keeps it quiet for ten minutes, and it never chats about its own trouble; if a source fails it waits a minute before trying again. Settings are remembered in `state.json`; `audio.autoDj` in `config.json` sets the starting values.

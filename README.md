@@ -108,6 +108,8 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!radio [number\|name\|URL]` | No argument lists stations. Or give a direct stream URL. |
 | `!queue` (`!q`), `!np` | What's playing and what's next. For a radio station, `!np` also shows the song it is playing right now. |
 | `!skip`, `!stop`, `!pause`, `!resume`, `!clear`, `!remove <n>`, `!shuffle`, `!volume [0-100]` | Playback control. You must be in the bot's channel (admins can always). |
+| `!search <words>`, `!pick <number>` | Search YouTube and choose from five results: `!search lofi beats`, then `!pick 2`. Your results are yours alone and last five minutes. |
+| `!history [n]` (`!recent`), `!again <#number>` (`!replay`) | What was played recently, newest first, and play one of them again. |
 | `!seek <1:30 \| 90 \| +30 \| -30>` | Jump within the current track (not live radio). |
 | `!repeat [off\|track\|queue]` (`!loop`) | Repeat the current track or the whole queue. Live radio is never repeated. |
 | `!move <from> <to>` | Move a queued track to another position. |
@@ -119,6 +121,7 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!goto <channel name>` | Admins only. Send the bot to a channel by name, or as `#<id>`. |
 | `!autodj [on\|off\|source radio <station>\|source playlist <name>]` | Admins only. See [Auto-DJ and 24/7](#auto-dj-and-247). |
 | `!stay [on\|off]` (`!247`) | Admins only. 24/7 mode: stay in the current channel. |
+| `!tools`, `!ytcheck`, `!ytupdate` | Admins only. Tool versions, a YouTube playback test, and a yt-dlp update. See [YouTube](#youtube). |
 | `!block <name or #number> [minutes]`, `!unblock`, `!blocklist`, `!blockword`, `!unblockword` | Admins only. See [Keeping trolls out](#keeping-trolls-out). |
 | `!help [command]`, `!ping`, `!whoami` | Everyone |
 | `!status`, `!cogs`, `!load`, `!unload`, `!reload`, `!restart` | Admins only |
@@ -153,6 +156,8 @@ Behaviour worth knowing:
 | `audio.radioNowPlaying` / `audio.announceRadioTitles` | Read the current song from a radio station so `!np` can show it (default on), and post each new title in the channel (default off) |
 | `audio.maxQueuePerUser` | How many tracks one person may have queued at once (default `0` = no limit; bot admins are exempt) |
 | `audio.blockedWords` | Words that keep a track out of the queue when they are in its title or address, for everyone but admins (add more with `!blockword`) |
+| `audio.radioRetries` / `audio.radioRetrySeconds` / `audio.radioFallback` | When a live station drops: how many times to reconnect (default 3, `0` = never), how long to wait before the first try (default 2 s, later tries wait longer), and a station to switch to if one will not come back (empty = none). See [Radio](#radio-that-keeps-going). |
+| `audio.healthCheckHours` | Test YouTube playback this often and tell the online admins if it stops working (default 12, `0` = never) |
 | `audio.autoDj` / `audio.stayInChannel` | Starting values for [Auto-DJ and 24/7 mode](#auto-dj-and-247); changes made with `!autodj` and `!stay` are remembered separately |
 | `audio.radioStations` | Your own stations: `{ "key": { "name": "...", "url": "https://..." } }`. Replaces the built-in SomaFM list, whose URLs are not guaranteed, so check them. |
 | `audio.ytdlpExtraArgs` | Extra yt-dlp arguments, e.g. `["--js-runtimes","node"]` or `["--cookies","C:\\path\\cookies.txt"]` |
@@ -197,7 +202,7 @@ The `web` cog is a control panel in a browser: what is playing with a progress b
 
 Nearly every button just runs a chat command as you, so it follows the same rules. Saving stations and reading the log have no chat command, so the server checks you are a bot admin for those.
 
-**On the Player tab** you can also click the progress bar to jump to that point, cycle the Repeat button, and move queued tracks up and down. **Admins** additionally get an Auto-DJ and 24/7 card, and a Troll control card, on the Admin tab: see [Auto-DJ and 24/7](#auto-dj-and-247) and [Keeping trolls out](#keeping-trolls-out).
+**On the Player tab** you can also search (type words and press Search, then Add on a result), see what was played recently and play any of it again, click the progress bar to jump to that point, cycle the Repeat button, and move queued tracks up and down. **Admins** additionally get a Tools card (versions, a YouTube test, a yt-dlp update), an Auto-DJ and 24/7 card, and a Troll control card, on the Admin tab: see [Auto-DJ and 24/7](#auto-dj-and-247) and [Keeping trolls out](#keeping-trolls-out).
 
 **Safety.** The page only accepts requests addressed to this machine by name or number and from its own origin, which stops a malicious web page from driving it through your browser. Login cookies are HttpOnly and SameSite=Strict, request sizes and command rates are limited, and song titles and other outside text are only ever shown as plain text, never as HTML.
 
@@ -289,6 +294,10 @@ It uses TeamSpeak's file-transfer feature, so two things must be true:
 
 A failed automatic upload only writes a warning to the log. It never posts in chat.
 
+### Radio that keeps going
+
+Live streams drop now and then. When a station stops or fails part-way, the bot waits a couple of seconds and reconnects (up to `audio.radioRetries` times, waiting longer each time), and tells the listeners once. If it will not come back and you have set `audio.radioFallback` (for example `"groovesalad"`), it switches to that station instead. A fallback that also fails is not swapped again. Problems that reconnecting cannot fix, such as ffmpeg not being installed, are reported straight away and not retried. Auto-DJ does the same without saying anything in chat. `!stop` cancels a reconnect in progress.
+
 ### YouTube
 
 YouTube changes often, and old yt-dlp versions stop working, so **keep yt-dlp current**. On Windows, a scheduled task does it:
@@ -296,6 +305,8 @@ YouTube changes often, and old yt-dlp versions stop working, so **keep yt-dlp cu
 ```powershell
 Register-ScheduledTask -TaskName 'yt-dlp update' -Action (New-ScheduledTaskAction -Execute 'C:\tools\yt-dlp.exe' -Argument '-U') -Trigger (New-ScheduledTaskTrigger -Daily -At 4am) -User 'SYSTEM' -RunLevel Highest
 ```
+
+**Let the bot watch it for you.** Every `audio.healthCheckHours` (default 12) the bot asks yt-dlp about a short, permanent YouTube video. If that fails and still fails a few minutes later, every bot admin who is online gets a private message with the reason, and another when it recovers. You can run the same test any time with `!ytcheck` or the Test YouTube button on the dashboard's Admin tab, see the versions with `!tools`, and update yt-dlp with `!ytupdate` or the Update yt-dlp button. `!ytupdate` runs yt-dlp's own updater, which suits the standalone `yt-dlp.exe`; if yt-dlp was installed with pip or a package manager it says so, and you update it that way instead.
 
 If yt-dlp reports "no supported JavaScript runtime", add `["--js-runtimes","node"]` to `ytdlpExtraArgs`. If it reports "sign in to confirm you're not a bot", export a cookies file and add `["--cookies","<path>"]`.
 
@@ -337,6 +348,8 @@ Cogs can offer things to each other without importing one another: a cog calls `
 Then `!load hello`. Editing the file and running `!reload hello` picks up the change, and if the new version has an error the old one stays loaded. `!reload` re-reads a cog's *entry file* only, so if you split a cog across files, changes to the others need `!restart`. The folder name must equal `manifest.name`, and two cogs cannot claim the same command. The built-in `core` cog cannot be unloaded. Add the name to `cogs` in the config to load it at start-up.
 
 ## Troubleshooting
+
+**Music stopped playing?** Send `!ytcheck` (or press Test YouTube on the Admin tab). If YouTube is the problem it says why, and `!ytupdate` fixes most cases.
 
 Logs: `data/logs/tsbot-YYYY-MM-DD.log` (14 days kept). Set `"logLevel": "debug"` for protocol detail.
 
