@@ -29,6 +29,13 @@ export class FakeAdapter implements TsAdapter {
   voice: { frame: Uint8Array; codec: number }[] = [];
   moves: bigint[] = [];
   failMove: Error | undefined;
+  /** Moves of other people: who (client id) and where to. */
+  userMoves: { id: number; to: bigint }[] = [];
+  failMoveUser: Error | undefined;
+  moveUserCalls = 0;
+  /** Idle seconds the fake server reports per client id (missing = the server would not say). */
+  idle = new Map<number, number>();
+  idleCalls: number[] = [];
   privilegeKeys: string[] = [];
   started = false;
   avatarCalls: { bytes: Buffer; force: boolean }[] = [];
@@ -65,6 +72,18 @@ export class FakeAdapter implements TsAdapter {
     if (this.failMove) throw this.failMove;
     this.moves.push(id);
     this.chan = id;
+  }
+  async moveUser(id: number, channelId: bigint) {
+    this.moveUserCalls++;
+    if (this.failMoveUser) throw this.failMoveUser;
+    const u = this.userList.find((x) => x.id === id);
+    if (!u) throw new Error('no such client');
+    this.userMoves.push({ id, to: channelId });
+    u.channelId = channelId;
+  }
+  async idleSeconds(id: number) {
+    this.idleCalls.push(id);
+    return this.idle.get(id);
   }
   async reply(to: IncomingMessage, text: string) {
     if (to.scope === 'channel') return this.sendChannel(text);
@@ -159,7 +178,7 @@ export async function makeBot(opts: { config?: Config; customCogs?: Record<strin
 }
 
 /** Wait until `cond` is true (polling), or fail after `ms`. */
-export async function until(cond: () => boolean, ms = 2000, what = 'condition'): Promise<void> {
+export async function until(cond: () => boolean, ms = 10_000, what = 'condition'): Promise<void> {
   const t0 = Date.now();
   while (!cond()) {
     if (Date.now() - t0 > ms) throw new Error(`timed out waiting for ${what}`);

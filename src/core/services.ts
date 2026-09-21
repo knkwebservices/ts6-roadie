@@ -146,3 +146,26 @@ export interface AudioService {
   /** Tool versions and the last YouTube check (no slow work: it is remembered). */
   tools(): ToolsInfo;
 }
+
+// ---- the community cog's service ---------------------------------------------------------
+
+export const COMMUNITY_SERVICE = 'community';
+
+/** What the AFK mover and the welcome message are doing, for the dashboard. */
+export interface CommunityState {
+  afk: {
+    enabled: boolean;
+    channel: string;
+    minutes: number;
+    warnSeconds: number;
+    /** Is there a channel with that name? */
+    channelFound: boolean;
+    /** People the mover has moved to the AFK channel and will move back. */
+    moved: { name: string; at: number }[];
+  };
+  welcome: { enabled: boolean; message: string };
+}
+
+export interface CommunityService {
+  state(): CommunityState;
+}

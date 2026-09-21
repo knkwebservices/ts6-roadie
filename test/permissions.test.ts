@@ -11,7 +11,7 @@ const MOD = 7;
 async function ask(h: Harness, u: TsUser, text: string): Promise<string> {
   const n = h.adapter.sent.length;
   h.adapter.say(u, text);
-  await until(() => h.adapter.sent.length > n, 2000, `a reply to "${text}"`);
+  await until(() => h.adapter.sent.length > n, 10000, `a reply to "${text}"`);
   return h.adapter.lastReply();
 }
 

@@ -5,6 +5,7 @@ import { errMessage } from '../../util/text.js';
 import type { AdminApi, LogLevel } from './admin.js';
 import type { Person, WebAuth } from './auth.js';
 import { APP_CSS, APP_HTML, APP_JS } from './ui.js';
+import { WIDGET_CSS, WIDGET_HTML, WIDGET_JS } from './widget.js';
 
 const COOKIE = 'roadie_sid';
 const MAX_BODY_BYTES = 4096;
@@ -15,6 +16,9 @@ const COMMAND_LIMIT = { count: 10, windowMs: 5_000 };
 const READ_LIMIT = { count: 30, windowMs: 5_000 };
 /** A search starts yt-dlp and takes a couple of seconds, so it is limited more tightly. */
 const SEARCH_LIMIT = { count: 3, windowMs: 10_000 };
+
+/** The public widget allows this many requests per visitor per minute. */
+const WIDGET_LIMIT = { count: 60, windowMs: 60_000 };
 
 /** Each path answers one kind of request. */
 const ROUTES: Record<string, 'GET' | 'POST'> = {
@@ -44,6 +48,8 @@ export interface WebDeps {
   search?(person: Person, query: string): Promise<{ ok: true; results: unknown[] } | { ok: false; error: string; status?: number }>;
   /** What was played recently (newest first). */
   history?(): unknown[];
+  /** The public widget. Everything under /widget is a 404 while it is switched off. */
+  widget?: { enabled(): boolean; origins: string[]; data(): unknown };
   sessionTtlMs: number;
   log: Log;
 }
@@ -63,7 +69,9 @@ const SECURITY_HEADERS: Record<string, string> = {
 };
 
 function send(res: http.ServerResponse, status: number, body: string, type: string, extra: Record<string, string> = {}): void {
-  res.writeHead(status, { 'Content-Type': type, ...SECURITY_HEADERS, ...extra });
+  // an empty value in `extra` means "leave that header out"
+  const headers = Object.fromEntries(Object.entries({ 'Content-Type': type, ...SECURITY_HEADERS, ...extra }).filter(([, v]) => v !== ''));
+  res.writeHead(status, headers);
   res.end(body);
 }
 const json = (res: http.ServerResponse, status: number, data: unknown, extra: Record<string, string> = {}): void =>
@@ -143,6 +151,7 @@ export async function startWebServer(opts: { host: string; port: number; publicU
   const commandTimes = new Map<string, number[]>();
   const readTimes = new Map<string, number[]>();
   const searchTimes = new Map<string, number[]>();
+  const widgetTimes = new Map<string, number[]>();
   /** True if this session may go ahead; false if it has used up its allowance for the moment. */
   const allow = (times: Map<string, number[]>, limit: { count: number; windowMs: number }, sid: string): boolean => {
     const now = Date.now();
@@ -173,11 +182,42 @@ export async function startWebServer(opts: { host: string; port: number; publicU
     });
   });
 
+  /** /widget (a page to embed), /widget.json (the data), and their script and style. Read-only, no login, and only while it is on. */
+  function handleWidget(req: http.IncomingMessage, res: http.ServerResponse, host: string): void {
+    const path = new URL(req.url ?? '/', `http://${host}`).pathname;
+    if (req.method !== 'GET') return json(res, 405, { error: 'Method not allowed.' }, { Allow: 'GET' });
+    const w = deps.widget;
+    if (!w || !w.enabled()) return json(res, 404, { error: 'Not found.' });
+    // one visitor cannot hammer the bot: the address the proxy reports counts, like for login guesses
+    if (!allow(widgetTimes, WIDGET_LIMIT, clientKey(req))) return json(res, 429, { error: 'Slow down a little.' });
+    if (widgetTimes.size > 5000) widgetTimes.clear();
+
+    const common = { 'X-Robots-Tag': 'noindex' };
+    if (path === '/widget.json') {
+      const origin = req.headers.origin;
+      const cors: Record<string, string> = origin && w.origins.includes(origin) ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : { Vary: 'Origin' };
+      return json(res, 200, w.data(), { ...common, ...cors });
+    }
+    if (path === '/widget.js') return send(res, 200, WIDGET_JS, 'text/javascript; charset=utf-8', common);
+    if (path === '/widget.css') return send(res, 200, WIDGET_CSS, 'text/css; charset=utf-8', common);
+    // the page itself: only the sites an admin listed may put it in a frame
+    const ancestors = w.origins.length ? w.origins.join(' ') : "'none'";
+    const headers: Record<string, string> = {
+      ...common,
+      'Content-Security-Policy': `default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors ${ancestors}`,
+    };
+    // (the general security headers include X-Frame-Options: DENY, which would stop any embedding, so it is blanked here)
+    return send(res, 200, WIDGET_HTML, 'text/html; charset=utf-8', { ...headers, 'X-Frame-Options': w.origins.length ? '' : 'DENY' });
+  }
+
   async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     // 1. Only answer requests addressed to this machine by name or number. This is what stops a
     //    malicious web page from reaching the dashboard through your browser ("DNS rebinding").
     const host = (req.headers.host ?? '').toLowerCase();
     if (!allowedHosts().has(host)) return json(res, 403, { error: 'Not allowed.' });
+    // The public widget is open to the world, so it has its own rules (below) instead of the same-origin check.
+    if (req.url && /^\/widget(\.json|\.js|\.css)?(\?|$)/.test(req.url)) return handleWidget(req, res, host);
+
     // 2. A browser tells us which site a request came from; refuse any site that is not this one.
     const origin = req.headers.origin;
     const viaPublic = publicHost !== undefined && host === publicHost;

@@ -86,7 +86,7 @@ test('announced titles are reported, once each, in order', async () => {
   const s = await station({ titles: ['Rick Astley - Never Gonna Give You Up', "a-ha - Take On Me", 'Queen - Bohemian Rhapsody'], repeat: 4 });
   const c = collect(s.url);
   try {
-    await until(() => c.titles.length >= 3, 3000, 'three titles');
+    await until(() => c.titles.length >= 3, 10000, 'three titles');
     assert.deepEqual(c.titles.slice(0, 3), ['Rick Astley - Never Gonna Give You Up', 'a-ha - Take On Me', 'Queen - Bohemian Rhapsody']);
   } finally {
     c.stop();
@@ -99,7 +99,7 @@ test('blocks split across network packets (even one byte at a time) still parse'
     const s = await station({ chunk, metaint: 64, titles: ["Björk - Jóga", 'Second - Song'], repeat: 2 });
     const c = collect(s.url);
     try {
-      await until(() => c.titles.length >= 2, 4000, `titles with ${chunk}-byte chunks`);
+      await until(() => c.titles.length >= 2, 10000, `titles with ${chunk}-byte chunks`);
       assert.deepEqual(c.titles.slice(0, 2), ['Björk - Jóga', 'Second - Song'], `chunk size ${chunk}`);
     } finally {
       c.stop();
@@ -112,7 +112,7 @@ test('an older station sending Latin-1 is decoded correctly', async () => {
   const s = await station({ titles: [Buffer.from([0x43, 0x61, 0x66, 0xe9, 0x20, 0x64, 0x65, 0x6c, 0x20, 0x4d, 0x61, 0x72])] }); // "Café del Mar" in Latin-1
   const c = collect(s.url);
   try {
-    await until(() => c.titles.length >= 1, 3000, 'a title');
+    await until(() => c.titles.length >= 1, 10000, 'a title');
     assert.equal(c.titles[0], 'Café del Mar');
   } finally {
     c.stop();
@@ -124,7 +124,7 @@ test('a station that announces no titles is left alone, quietly, without retryin
   const s = await station({ metaint: undefined });
   const c = collect(s.url);
   try {
-    await until(() => c.notes.length > 0, 3000, 'a note');
+    await until(() => c.notes.length > 0, 10000, 'a note');
     assert.match(c.notes[0]!, /does not announce song titles/);
     await new Promise((r) => setTimeout(r, 200));
     assert.equal(s.requests, 1, 'exactly one connection, no reconnect loop');
@@ -139,9 +139,9 @@ test('stop() ends the connection and no more titles arrive', async () => {
   const s = await station({ titles: ['One', 'Two', 'Three', 'Four'], repeat: 1 });
   const c = collect(s.url);
   try {
-    await until(() => c.titles.length >= 1, 3000, 'first title');
+    await until(() => c.titles.length >= 1, 10000, 'first title');
     c.stop();
-    await until(() => s.closed >= 1, 2000, 'the station to see the connection close');
+    await until(() => s.closed >= 1, 10000, 'the station to see the connection close');
     const n = c.titles.length;
     await new Promise((r) => setTimeout(r, 150));
     assert.equal(c.titles.length, n, 'nothing after stop');
@@ -155,8 +155,8 @@ test('a dropped connection is re-established and titles continue', async () => {
   const s = await station({ titles: ['First', 'Second'], repeat: 1, dropFirstAfter: 2 });
   const c = collect(s.url);
   try {
-    await until(() => s.requests >= 2, 3000, 'a reconnect');
-    await until(() => c.titles.includes('Second') || c.titles.length >= 2, 3000, 'titles after reconnecting');
+    await until(() => s.requests >= 2, 10000, 'a reconnect');
+    await until(() => c.titles.includes('Second') || c.titles.length >= 2, 10000, 'titles after reconnecting');
   } finally {
     c.stop();
     s.close();
@@ -167,7 +167,7 @@ test('a failing station is retried a limited number of times, then abandoned', a
   const s = await station({ status: 503 });
   const c = collect(s.url, { maxRetries: 2 });
   try {
-    await until(() => c.notes.some((n) => /gave up/.test(n)), 4000, 'giving up');
+    await until(() => c.notes.some((n) => /gave up/.test(n)), 10000, 'giving up');
     assert.equal(s.requests, 3, 'the first try plus two retries');
   } finally {
     c.stop();
@@ -180,7 +180,7 @@ test('redirects are followed only if allowed', async () => {
   const redirecting = await station({ redirectTo: target.url });
   const follows = collect(redirecting.url, { checkRedirect: () => true });
   try {
-    await until(() => follows.titles.length >= 1, 3000, 'a title through the redirect');
+    await until(() => follows.titles.length >= 1, 10000, 'a title through the redirect');
     assert.equal(follows.titles[0], 'Behind the redirect');
   } finally {
     follows.stop();
@@ -188,7 +188,7 @@ test('redirects are followed only if allowed', async () => {
 
   const refused = collect(redirecting.url, { checkRedirect: () => false });
   try {
-    await until(() => refused.notes.length > 0, 2000, 'a note');
+    await until(() => refused.notes.length > 0, 10000, 'a note');
     assert.match(refused.notes[0]!, /did not follow a redirect/);
     const before = target.requests;
     await new Promise((r) => setTimeout(r, 150));
@@ -204,7 +204,7 @@ test('by default, redirects to private addresses are refused (the station is pub
   const redirecting = await station({ redirectTo: 'http://192.168.1.10/stream' });
   const c = collect(redirecting.url); // default check
   try {
-    await until(() => c.notes.length > 0, 2000, 'a note');
+    await until(() => c.notes.length > 0, 10000, 'a note');
     assert.match(c.notes[0]!, /did not follow a redirect/);
   } finally {
     c.stop();

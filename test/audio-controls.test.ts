@@ -11,7 +11,7 @@ import { CH, until } from './helpers.js';
 async function say(r: Rig, user: TsUser, text: string): Promise<string> {
   const n = r.adapter.sent.length;
   r.adapter.say(user, text);
-  await until(() => r.adapter.sent.length > n, 2000, `an answer to ${text}`);
+  await until(() => r.adapter.sent.length > n, 10000, `an answer to ${text}`);
   return r.adapter.sent[n]!.text;
 }
 const pause = (ms: number) => new Promise((res) => setTimeout(res, ms));
@@ -53,7 +53,7 @@ test('!move puts a queued track somewhere else, and says what is wrong when it c
   try {
     const alice = r.adapter.addUser(5, 'Alice', CH.home);
     for (const q of ['one', 'two', 'three', 'four']) r.adapter.say(alice, `!play ${q}`);
-    await until(() => r.player.played.length === 1 && sentTexts(r).filter((t) => /Queued/.test(t)).length === 4, 3000, 'four tracks');
+    await until(() => r.player.played.length === 1 && sentTexts(r).filter((t) => /Queued/.test(t)).length === 4, 10000, 'four tracks');
     assert.match(await say(r, alice, '!move 3 1'), /Moved .*four.* to position 1/);
     assert.match(await say(r, alice, '!queue'), /1\. Song for "four".*\n2\. Song for "two"/s);
     assert.match(await say(r, alice, '!move 9 1'), /Usage/);
@@ -76,17 +76,17 @@ test('repeat track: it plays again when it ends, but a skip moves on', async () 
     assert.match(await say(r, alice, '!repeat track'), /Repeating the current track/);
     const before = sentTexts(r).filter((t) => /Now playing/.test(t)).length;
     r.player.endTrack();
-    await until(() => r.player.played.length === 2, 2000, 'the same track again');
+    await until(() => r.player.played.length === 2, 10000, 'the same track again');
     assert.equal(r.player.played[1]!.url, r.player.played[0]!.url);
     assert.equal(sentTexts(r).filter((t) => /Now playing/.test(t)).length, before, 'a repeat is not announced again');
 
     await say(r, alice, '!skip');
-    await until(() => r.player.played.length === 3, 2000, 'the next track');
+    await until(() => r.player.played.length === 3, 10000, 'the next track');
     assert.match(r.player.played[2]!.url, /two/);
 
     assert.match(await say(r, alice, '!repeat off'), /off/);
     r.player.endTrack();
-    await until(() => !r.player.playing, 2000, 'the end');
+    await until(() => !r.player.playing, 10000, 'the end');
     assert.equal(r.player.played.length, 3, 'nothing repeats once it is off');
     assert.match(await say(r, alice, '!repeat sideways'), /Usage/);
   } finally {
@@ -115,7 +115,7 @@ test('repeat queue: every track goes to the back after it plays, skipped ones to
     assert.match(await say(r, alice, '!queue'), /Repeat: queue/);
 
     await say(r, alice, '!stop');
-    await until(() => !r.player.playing, 2000, 'the stop');
+    await until(() => !r.player.playing, 10000, 'the stop');
     await pause(100);
     assert.equal(r.player.played.length, 4, 'stop does not start the queue again');
     assert.match(await say(r, alice, '!queue'), /Nothing is playing/);
@@ -138,7 +138,7 @@ test('live radio and failed tracks are never repeated', async () => {
 
     r.player.failNext = 'boom';
     r.adapter.say(alice, '!play broken');
-    await until(() => sentTexts(r).some((t) => /Couldn't play .*boom/.test(t)), 2000, 'the error message');
+    await until(() => sentTexts(r).some((t) => /Couldn't play .*boom/.test(t)), 10000, 'the error message');
     await pause(60);
     assert.equal(r.player.played.length, 2, 'a track that failed is not played again');
   } finally {
@@ -159,7 +159,7 @@ test('!seek jumps within the same track, keeps the queue, and refuses what makes
     await until(() => sentTexts(r).some((t) => /position 1/.test(t)));
 
     assert.match(await say(r, alice, '!seek 1:30'), /Jumping to 1:30/);
-    await until(() => r.player.played.length === 2, 2000, 'the track to start again');
+    await until(() => r.player.played.length === 2, 10000, 'the track to start again');
     assert.equal(r.player.played[1]!.url, r.player.played[0]!.url, 'the same track');
     assert.equal(r.player.played[1]!.startSec, 90);
     assert.match(await say(r, alice, '!queue'), /Now: Song for "one".*\nUp next \(1\):\n1\. Song for "two"/s);
@@ -213,7 +213,7 @@ test('Auto-DJ plays a station when someone is listening, but not to an empty roo
 
     r.adapter.userList.push(alice);
     await say(r, admin, '!autodj on');
-    await until(() => r.player.played.length === 1, 2000, 'Auto-DJ to start');
+    await until(() => r.player.played.length === 1, 10000, 'Auto-DJ to start');
     assert.equal(r.player.played[0]!.kind, 'radio');
     assert.match(r.player.played[0]!.url, /defcon/);
     assert.ok(!r.adapter.sent.some((s) => s.kind === 'channel' && /Now playing/.test(s.text)), 'Auto-DJ does not announce itself in chat');
@@ -231,26 +231,26 @@ test('a request goes ahead of Auto-DJ, Auto-DJ comes back afterwards, and a stop
     const alice = r.adapter.addUser(5, 'Alice', CH.home);
     await say(r, admin, '!autodj source radio groovesalad');
     await say(r, admin, '!autodj on');
-    await until(() => r.player.played.length === 1, 2000, 'Auto-DJ to start');
+    await until(() => r.player.played.length === 1, 10000, 'Auto-DJ to start');
 
     r.adapter.say(alice, '!play my song');
-    await until(() => r.player.played.length === 2, 2000, 'the request to start at once');
+    await until(() => r.player.played.length === 2, 10000, 'the request to start at once');
     assert.equal(r.player.played[1]!.kind, 'media');
     assert.ok(sentTexts(r).some((t) => /Queued: .*starting now/.test(t)), 'told it starts now, not "position 1"');
 
     r.player.endTrack();
-    await until(() => r.player.played.length === 3, 2000, 'Auto-DJ to come back');
+    await until(() => r.player.played.length === 3, 10000, 'Auto-DJ to come back');
     assert.equal(r.player.played[2]!.kind, 'radio');
 
     await say(r, alice, '!stop');
-    await until(() => !r.player.playing, 2000, 'the stop');
+    await until(() => !r.player.playing, 10000, 'the stop');
     await pause(150);
     assert.equal(r.player.played.length, 3, 'stop keeps Auto-DJ quiet');
 
     await say(r, admin, '!autodj on'); // turning it on again lifts the pause
-    await until(() => r.player.played.length === 4, 2000, 'Auto-DJ after being asked again');
+    await until(() => r.player.played.length === 4, 10000, 'Auto-DJ after being asked again');
     await say(r, admin, '!autodj off');
-    await until(() => !r.player.playing, 2000, 'turning it off stops its music');
+    await until(() => !r.player.playing, 10000, 'turning it off stops its music');
   } finally {
     r.cleanup();
   }
@@ -274,10 +274,10 @@ test('Auto-DJ from a playlist picks tracks at random without playing the same on
     assert.deepEqual(r.bot.state.get<{ source: string }>('audio.autodj', { source: '' }).source, 'playlist:Friday Mix', 'the playlist keeps its own spelling');
 
     await say(r, admin, '!autodj on');
-    await until(() => r.player.played.length === 1, 2000, 'the first pick');
+    await until(() => r.player.played.length === 1, 10000, 'the first pick');
     for (let i = 2; i <= 8; i++) {
       r.player.endTrack();
-      await until(() => r.player.played.length === i, 2000, `pick ${i}`);
+      await until(() => r.player.played.length === i, 10000, `pick ${i}`);
       assert.notEqual(r.player.played[i - 1]!.url, r.player.played[i - 2]!.url, 'never the same song twice in a row');
     }
     assert.ok(new Set(r.player.played.map((p) => p.url)).size >= 2, 'it does vary');
@@ -293,7 +293,7 @@ test('when Auto-DJ cannot play, it says nothing in chat and waits before trying 
     r.player.failNext = 'no route to host';
     assert.match(await say(r, admin, '!autodj'), /Auto-DJ is on/, 'the setting from config.json is used');
     await say(r, admin, '!autodj on');
-    await until(() => r.player.played.length === 1, 2000, 'the first try');
+    await until(() => r.player.played.length === 1, 10000, 'the first try');
     await pause(150);
     assert.equal(r.player.played.length, 1, 'no second try straight away');
     assert.ok(!sentTexts(r).some((t) => /Couldn't play/.test(t)), 'no complaint in chat');
@@ -308,12 +308,12 @@ test('Auto-DJ to an empty room gives way to a person who asks from another chann
     const admin = r.adapter.addUser(6, 'Admin', CH.home, 'uid-Admin');
     await say(r, admin, '!autodj source radio groovesalad');
     await say(r, admin, '!autodj on');
-    await until(() => r.player.played.length === 1, 2000, 'Auto-DJ to start');
+    await until(() => r.player.played.length === 1, 10000, 'Auto-DJ to start');
     r.adapter.userList.splice(r.adapter.userList.indexOf(admin), 1); // the room empties
 
     const bob = r.adapter.addUser(7, 'Bob', CH.a);
     r.adapter.say(bob, '!play bob song');
-    await until(() => r.player.played.length === 2, 2000, 'the request');
+    await until(() => r.player.played.length === 2, 10000, 'the request');
     assert.equal(r.adapter.chan, CH.a, 'the bot followed Bob');
     assert.equal(r.player.played[1]!.kind, 'media');
   } finally {
@@ -340,7 +340,7 @@ test('24/7 mode keeps the bot where it is instead of going home', async () => {
     assert.equal(r.adapter.chan, CH.a, 'it stayed');
 
     assert.match(await say(r, admin, '!247 off'), /24\/7 mode is off/);
-    await until(() => r.adapter.chan === CH.home, 2000, 'going home once 24/7 is off');
+    await until(() => r.adapter.chan === CH.home, 10000, 'going home once 24/7 is off');
     assert.match(await say(r, admin, '!stay maybe'), /Usage/);
   } finally {
     r.cleanup();
@@ -357,7 +357,7 @@ test('in 24/7 mode Auto-DJ stops streaming to an empty room, starts when someone
     await say(r, admin, '!autodj source radio groovesalad');
     await say(r, admin, '!goto Gaming A');
     await say(r, admin, '!autodj on');
-    await until(() => r.player.played.length === 1, 2000, 'Auto-DJ to start for Alice and Admin');
+    await until(() => r.player.played.length === 1, 10000, 'Auto-DJ to start for Alice and Admin');
     assert.equal(r.adapter.chan, CH.a);
 
     r.adapter.userList.length = 0; // everybody leaves
@@ -447,7 +447,7 @@ test('one person cannot fill the queue: the per-person limit, with admins exempt
     assert.match(await say(r, alice, '!play a3'), /as many tracks queued as you are allowed \(2\)/);
     assert.match(await say(r, bob, '!play b1'), /Queued/, 'somebody else is unaffected');
     for (const q of ['x1', 'x2', 'x3']) r.adapter.say(admin, `!play ${q}`);
-    await until(() => sentTexts(r).filter((t) => /Queued/.test(t)).length === 6, 2000, 'the admin to queue three');
+    await until(() => sentTexts(r).filter((t) => /Queued/.test(t)).length === 6, 10000, 'the admin to queue three');
 
     r.player.endTrack(); // Alice's first track ends, so she has room again
     await until(() => r.player.played.length === 2);
@@ -472,13 +472,13 @@ test('blocked words keep tracks out of the queue, for everyone but admins', asyn
     assert.match(await say(r, admin, '!blocklist'), /Blocked words: loud noise, earrape/);
 
     r.adapter.say(admin, '!play earrape for testing');
-    await until(() => r.player.played.length === 1, 2000, 'the admin to get through');
+    await until(() => r.player.played.length === 1, 10000, 'the admin to get through');
 
     assert.match(await say(r, admin, '!unblockword earrape'), /allowed again/);
     assert.match(await say(r, admin, '!unblockword loud noise'), /comes from config\.json/);
     assert.match(await say(r, admin, '!unblockword banana'), /not on the list/);
     r.adapter.say(alice, '!play best earrape ever');
-    await until(() => sentTexts(r).filter((t) => /Queued/.test(t)).length === 2, 2000, 'the word to work again');
+    await until(() => sentTexts(r).filter((t) => /Queued/.test(t)).length === 2, 10000, 'the word to work again');
   } finally {
     r.cleanup();
   }

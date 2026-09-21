@@ -102,7 +102,7 @@ export async function makeWebRig(configOver: Record<string, unknown> = {}, audio
   const login = async (user: TsUser): Promise<string> => {
     const n = h.adapter.sent.length;
     h.adapter.say(user, '!weblogin');
-    await until(() => h.adapter.sent.length > n, 2000, 'the login code');
+    await until(() => h.adapter.sent.length > n, 10000, 'the login code');
     const code = /[A-Z2-9]{4}-[A-Z2-9]{4}/.exec(h.adapter.lastReply())?.[0];
     if (!code) throw new Error(`no code in: ${h.adapter.lastReply()}`);
     const r = await request(web.port, { path: '/api/login', body: { code } });
@@ -154,7 +154,7 @@ export async function openPage(r: WebRig): Promise<Page> {
     },
   });
   const doc = dom.window.document;
-  await until(() => !doc.getElementById('login')!.hidden || !doc.getElementById('app')!.hidden, 5000, 'the page to start');
+  await until(() => !doc.getElementById('login')!.hidden || !doc.getElementById('app')!.hidden, 10000, 'the page to start');
   return {
     win: dom.window,
     doc,

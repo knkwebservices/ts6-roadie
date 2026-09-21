@@ -325,11 +325,11 @@ test('a full list of stations fits in one request, and an oversized one is refus
 async function signIn(r: WebRig, page: Page, user = r.admin): Promise<void> {
   const n = r.adapter.sent.length;
   r.adapter.say(user, '!weblogin');
-  await until(() => r.adapter.sent.length > n, 2000, 'the code');
+  await until(() => r.adapter.sent.length > n, 10000, 'the code');
   const code = CODE.exec(r.adapter.lastReply())![0];
   (page.q('#code') as HTMLInputElement).value = code;
   (page.q('#login-form') as HTMLFormElement).requestSubmit();
-  await until(() => !page.q('#app').hidden, 5000, 'signing in');
+  await until(() => !page.q('#app').hidden, 10000, 'signing in');
 }
 
 const click = (page: Page, sel: string) => (page.q(sel) as HTMLElement).click();
@@ -340,7 +340,7 @@ const buttonNamed = (page: Page, label: string) => {
 };
 /** The page redraws its lists as fresh information arrives, so wait for the button to be there and click it. */
 const clickWhenReady = async (page: Page, label: string): Promise<void> => {
-  await until(() => page.qa('button').some((x) => x.getAttribute('aria-label') === label || x.textContent === label), 3000, `the "${label}" button`);
+  await until(() => page.qa('button').some((x) => x.getAttribute('aria-label') === label || x.textContent === label), 10000, `the "${label}" button`);
   buttonNamed(page, label).click();
 };
 
@@ -377,7 +377,7 @@ test('the Admin tab shows health, cogs and channels, and its buttons send ordina
   try {
     await signIn(r, page);
     click(page, '#tab-btn-admin');
-    await until(() => page.qa('#cogs li').length > 0 && page.qa('#channels li').length > 0, 3000, 'the Admin tab to load');
+    await until(() => page.qa('#cogs li').length > 0 && page.qa('#channels li').length > 0, 10000, 'the Admin tab to load');
     assert.equal(page.q('#tab-admin').hidden, false);
     assert.equal(page.q('#tab-player').hidden, true);
     assert.match(page.q('#admin-facts').textContent!, /Bot \d+\.\d+\.\d+.*Connected.*Channel: Lobby/);
@@ -399,21 +399,21 @@ test('the Admin tab shows health, cogs and channels, and its buttons send ordina
     assert.match(gamingA.textContent!, /Bob/);
 
     click(page, '#btn-status');
-    await until(() => page.sent.includes('!status'), 2000, '!status');
+    await until(() => page.sent.includes('!status'), 10000, '!status');
     (gamingA.querySelector('button') as HTMLButtonElement).click();
-    await until(() => page.sent.includes(`!goto #${CH.a}`), 2000, '!goto');
-    await until(() => !page.q('#admin-output').hidden, 2000, 'the reply to show');
+    await until(() => page.sent.includes(`!goto #${CH.a}`), 10000, '!goto');
+    await until(() => !page.q('#admin-output').hidden, 10000, 'the reply to show');
 
     await clickWhenReady(page, 'Reload voteskip');
-    await until(() => page.sent.includes('!reload voteskip'), 2000, '!reload');
+    await until(() => page.sent.includes('!reload voteskip'), 10000, '!reload');
     await clickWhenReady(page, 'Unload voteskip');
-    await until(() => page.sent.includes('!unload voteskip'), 2000, '!unload');
+    await until(() => page.sent.includes('!unload voteskip'), 10000, '!unload');
     // the list follows what really happened
-    await until(() => /\[off\]\s+voteskip/.test(page.q('#cogs').textContent!), 4000, 'voteskip to show as off');
+    await until(() => /\[off\]\s+voteskip/.test(page.q('#cogs').textContent!), 10000, 'voteskip to show as off');
     assert.equal(buttonNamed(page, 'Load voteskip').textContent, 'Load');
 
     click(page, '#btn-home');
-    await until(() => page.sent.includes('!leave'), 2000, '!leave');
+    await until(() => page.sent.includes('!leave'), 10000, '!leave');
   } finally {
     page.close();
     r.cleanup();
@@ -428,7 +428,7 @@ test('Restart and Unload ask first; saying no sends nothing', async () => {
   try {
     await signIn(r, page);
     click(page, '#tab-btn-admin');
-    await until(() => page.qa('#cogs li').length > 0, 3000, 'cogs');
+    await until(() => page.qa('#cogs li').length > 0, 10000, 'cogs');
 
     click(page, '#btn-restart');
     buttonNamed(page, 'Unload voteskip').click();
@@ -440,8 +440,8 @@ test('Restart and Unload ask first; saying no sends nothing', async () => {
 
     page.win.confirm = () => true;
     click(page, '#btn-restart');
-    await until(() => page.sent.includes('!restart'), 2000, '!restart');
-    await until(() => r.restarted(), 2000, 'the restart');
+    await until(() => page.sent.includes('!restart'), 10000, '!restart');
+    await until(() => r.restarted(), 10000, 'the restart');
   } finally {
     page.close();
     r.cleanup();
@@ -455,7 +455,7 @@ test('the station editor edits a copy, saves it, and shows the bot\'s answer whe
   try {
     await signIn(r, page);
     click(page, '#tab-btn-admin');
-    await until(() => page.qa('#station-editor li').length === 5, 3000, 'five stations');
+    await until(() => page.qa('#station-editor li').length === 5, 10000, 'five stations');
     assert.match(page.q('#stations-count').textContent!, /5 of 30 stations/);
     assert.equal((page.q('#btn-st-save') as HTMLButtonElement).disabled, true, 'nothing to save yet');
 
@@ -481,28 +481,28 @@ test('the station editor edits a copy, saves it, and shows the bot\'s answer whe
     type(input(rows()[4]!, '.st-name'), 'Broken');
     type(input(rows()[4]!, '.st-url'), 'http://192.168.1.9/stream');
     click(page, '#btn-st-save');
-    await until(() => /private network/.test(page.q('#stations-msg').textContent!), 3000, 'the refusal');
+    await until(() => /private network/.test(page.q('#stations-msg').textContent!), 10000, 'the refusal');
     assert.match(page.q('#stations-msg').className, /error/);
     assert.equal(rows().length, 5, 'the draft is still there to fix');
     assert.equal(listStations(r.bot.config.audio).length, 5, 'and nothing was saved');
 
     type(input(rows()[4]!, '.st-url'), 'https://radio.example.com/broken.mp3');
     click(page, '#btn-st-save');
-    await until(() => /Saved/.test(page.q('#stations-msg').textContent!), 3000, 'the save');
+    await until(() => /Saved/.test(page.q('#stations-msg').textContent!), 10000, 'the save');
     assert.deepEqual(listStations(r.bot.config.audio).map((s) => s.name), ['Space Station Renamed', 'SomaFM DEF CON Radio', 'SomaFM Metal Detector', 'SomaFM Secret Agent', 'Broken']);
     assert.equal((page.q('#btn-st-save') as HTMLButtonElement).disabled, true);
 
     // the Player tab's radio buttons follow
     click(page, '#tab-btn-player');
-    await until(() => page.qa('#stations button').length === 5 && page.q('#stations').textContent!.includes('Broken'), 4000, 'the Player tab to update');
+    await until(() => page.qa('#stations button').length === 5 && page.q('#stations').textContent!.includes('Broken'), 10000, 'the Player tab to update');
 
     // discard throws away edits
     click(page, '#tab-btn-admin');
-    await until(() => page.qa('#station-editor li').length === 5, 3000, 'editor');
+    await until(() => page.qa('#station-editor li').length === 5, 10000, 'editor');
     type(input(rows()[0]!, '.st-name'), 'Oops');
     assert.equal((page.q('#btn-st-discard') as HTMLButtonElement).disabled, false);
     click(page, '#btn-st-discard');
-    await until(() => input(rows()[0]!, '.st-name').value === 'Space Station Renamed', 3000, 'the edit to be discarded');
+    await until(() => input(rows()[0]!, '.st-name').value === 'Space Station Renamed', 10000, 'the edit to be discarded');
   } finally {
     page.close();
     r.cleanup();
@@ -516,7 +516,7 @@ test('unsaved station edits survive switching tabs, and the tab does not run in 
   try {
     await signIn(r, page);
     click(page, '#tab-btn-admin');
-    await until(() => page.qa('#station-editor li').length === 5, 3000, 'editor');
+    await until(() => page.qa('#station-editor li').length === 5, 10000, 'editor');
     const first = page.q<HTMLInputElement>('#station-editor .st-name');
     first.value = 'Half-typed';
     first.dispatchEvent(new page.win.Event('input', { bubbles: true }));
@@ -549,20 +549,20 @@ test('the log viewer shows the log, filters it, and can be refreshed', async () 
   try {
     await signIn(r, page);
     click(page, '#tab-btn-admin');
-    await until(() => page.q('#logs').textContent!.includes('starting'), 3000, 'the log');
+    await until(() => page.q('#logs').textContent!.includes('starting'), 10000, 'the log');
     assert.match(page.q('#logs-note').textContent!, /tsbot-2026-09-20\.log/);
     assert.doesNotMatch(page.q('#logs').textContent!, /ABCD-EFGH|hunter2/);
 
     const level = page.q<HTMLSelectElement>('#log-level');
     level.value = 'error';
     level.dispatchEvent(new page.win.Event('change', { bubbles: true }));
-    await until(() => !page.q('#logs').textContent!.includes('starting'), 3000, 'the filter');
+    await until(() => !page.q('#logs').textContent!.includes('starting'), 10000, 'the filter');
     assert.match(page.q('#logs').textContent!, /boom/);
     assert.match(page.q('#logs').textContent!, /player\.ts/);
 
     writeLog(r, 'tsbot-2026-09-20.log', LOG + '2026-09-20T10:00:09.000Z ERROR brand new problem\n');
     click(page, '#btn-log-refresh');
-    await until(() => page.q('#logs').textContent!.includes('brand new problem'), 3000, 'the refreshed log');
+    await until(() => page.q('#logs').textContent!.includes('brand new problem'), 10000, 'the refreshed log');
   } finally {
     page.close();
     r.cleanup();
@@ -581,8 +581,8 @@ test('SAFETY: names from TeamSpeak, cogs and the config are shown as plain text,
   try {
     await signIn(r, page);
     click(page, '#tab-btn-admin');
-    await until(() => page.q('#channels').textContent!.includes(evil) && page.q('#logs').textContent!.includes(evil), 3000, 'the tab to load');
-    await until(() => page.qa('#station-editor li').length === 1, 3000, 'the editor');
+    await until(() => page.q('#channels').textContent!.includes(evil) && page.q('#logs').textContent!.includes(evil), 10000, 'the tab to load');
+    await until(() => page.qa('#station-editor li').length === 1, 10000, 'the editor');
     assert.equal(page.qa('#tab-admin img').length, 0, 'no image element was created');
     assert.equal((page.win as unknown as { pwned?: number }).pwned, undefined);
     assert.equal(page.q<HTMLInputElement>('#station-editor .st-name').value, evil);

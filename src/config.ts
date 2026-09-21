@@ -64,11 +64,45 @@ export interface Config {
     codeMinutes: number;
     /** How long a signed-in browser stays signed in, in hours. */
     sessionHours: number;
+    /** A public page and data feed showing what is playing and who is online (off by default). */
+    widget: {
+      enabled: boolean;
+      /** List people by name and channel. If false, only how many are in each channel. */
+      showNames: boolean;
+      /** Websites allowed to embed the page or read the data feed, like "https://tgscgaming.com". */
+      origins: string[];
+    };
     /**
      * The https address people use when a reverse proxy (such as Caddy) forwards to the dashboard,
      * for example "https://ts6.example.com". Empty (the default) means the dashboard is only for this machine.
      */
     publicUrl: string;
+  };
+  community: {
+    /** Moves people who have gone AFK to a channel of their own. */
+    afk: {
+      enabled: boolean;
+      /** The channel to move them to. */
+      channel: string;
+      /** Minutes of being away, muted or idle before someone is moved. */
+      minutes: number;
+      /** Warn them by private message this many seconds before moving them (0 = no warning). */
+      warnSeconds: number;
+      /** How often to check, in seconds. */
+      checkSeconds: number;
+      /** Server groups (by ID) whose members are never moved. Bot admins never are. */
+      exemptGroups: number[];
+      /** Channels (by name) where nobody is moved. */
+      ignoreChannels: string[];
+    };
+    /** A private message to everyone who joins the server. */
+    welcome: {
+      enabled: boolean;
+      /** The text. {name} is replaced by the person's nickname. */
+      message: string;
+      /** Don't greet the same person again within this many seconds. */
+      cooldownSeconds: number;
+    };
   };
   voteskip: {
     /** A skip needs MORE than this fraction of the people listening (0.5 = a majority). */
@@ -147,7 +181,11 @@ export const DEFAULT_CONFIG: Config = {
   playlists: { maxPlaylists: 50, maxTracks: 100 },
   permissions: { commands: {} },
   voteskip: { threshold: 0.5 },
-  web: { host: '127.0.0.1', port: 8787, codeMinutes: 5, sessionHours: 12, publicUrl: '' },
+  web: { host: '127.0.0.1', port: 8787, codeMinutes: 5, sessionHours: 12, publicUrl: '', widget: { enabled: false, showNames: true, origins: [] } },
+  community: {
+    afk: { enabled: false, channel: 'AFK Room', minutes: 30, warnSeconds: 60, checkSeconds: 30, exemptGroups: [], ignoreChannels: [] },
+    welcome: { enabled: false, message: "Welcome, {name}! I'm the music bot. Send me a private message saying !help to see what I can do.", cooldownSeconds: 60 },
+  },
   follow: { idleReturnSeconds: 120, aloneLeaveSeconds: 60 },
   audio: {
     defaultVolume: 50,
@@ -194,6 +232,16 @@ function isPublicUrl(v: string): boolean {
   try {
     const u = new URL(v);
     return u.protocol === 'https:' && u.hostname !== '' && u.username === '' && u.password === '' && u.pathname === '/' && u.search === '' && u.hash === '' && !v.includes('?') && !v.includes('#');
+  } catch {
+    return false;
+  }
+}
+
+/** A website address with nothing after the host, like "https://tgscgaming.com" (a port is fine). */
+function isOrigin(v: string): boolean {
+  try {
+    const u = new URL(v);
+    return (u.protocol === 'https:' || u.protocol === 'http:') && u.hostname !== '' && u.origin === v && !u.username && !u.password;
   } catch {
     return false;
   }
@@ -255,6 +303,28 @@ export function validateConfig(c: Config): Config {
     typeof c.web.publicUrl === 'string' && (c.web.publicUrl === '' || isPublicUrl(c.web.publicUrl)),
     'web.publicUrl must be empty, or an https address with no path such as "https://ts6.example.com"',
   );
+  need(
+    isObject(c.web.widget) &&
+      typeof c.web.widget.enabled === 'boolean' &&
+      typeof c.web.widget.showNames === 'boolean' &&
+      Array.isArray(c.web.widget.origins) &&
+      c.web.widget.origins.every((o) => typeof o === 'string' && isOrigin(o)),
+    'web.widget must look like { "enabled": false, "showNames": true, "origins": ["https://example.com"] } (each origin is a website address with no path)',
+  );
+  {
+    const a = c.community.afk;
+    const w = c.community.welcome;
+    need(isObject(a) && typeof a.enabled === 'boolean', 'community.afk.enabled must be true or false');
+    need(isObject(a) && typeof a.channel === 'string' && a.channel.trim() !== '' && a.channel.length <= 100, 'community.afk.channel must be a channel name');
+    need(isObject(a) && typeof a.minutes === 'number' && a.minutes > 0 && a.minutes <= 1440, 'community.afk.minutes must be more than 0 and at most 1440');
+    need(isObject(a) && typeof a.warnSeconds === 'number' && a.warnSeconds >= 0 && a.warnSeconds <= 3600, 'community.afk.warnSeconds must be from 0 (no warning) to 3600');
+    need(isObject(a) && typeof a.checkSeconds === 'number' && a.checkSeconds > 0 && a.checkSeconds <= 3600, 'community.afk.checkSeconds must be more than 0 and at most 3600');
+    need(isObject(a) && Array.isArray(a.exemptGroups) && a.exemptGroups.every((g) => Number.isInteger(g) && g >= 0), 'community.afk.exemptGroups must be a list of server-group ID numbers');
+    need(isObject(a) && Array.isArray(a.ignoreChannels) && a.ignoreChannels.every((n) => typeof n === 'string'), 'community.afk.ignoreChannels must be a list of channel names');
+    need(isObject(w) && typeof w.enabled === 'boolean', 'community.welcome.enabled must be true or false');
+    need(isObject(w) && typeof w.message === 'string' && w.message.trim() !== '' && w.message.length <= 500, 'community.welcome.message must be text of 1 to 500 characters');
+    need(isObject(w) && typeof w.cooldownSeconds === 'number' && w.cooldownSeconds >= 0 && w.cooldownSeconds <= 86_400, 'community.welcome.cooldownSeconds must be from 0 to 86400');
+  }
   need(typeof c.voteskip.threshold === 'number' && c.voteskip.threshold >= 0 && c.voteskip.threshold < 1, 'voteskip.threshold must be a number from 0 up to (not including) 1');
   need(isObject(c.permissions.commands), 'permissions.commands must be an object of command name -> rule');
   if (isObject(c.permissions.commands)) {

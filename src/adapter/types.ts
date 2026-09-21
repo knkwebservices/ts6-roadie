@@ -26,6 +26,12 @@ export interface TsUser {
   channelId: bigint;
   /** Server-group IDs. */
   groups: number[];
+  /** Set to "away" in their client. */
+  away?: boolean;
+  /** Microphone muted. */
+  inputMuted?: boolean;
+  /** Speakers muted (deafened). */
+  outputMuted?: boolean;
 }
 
 export interface TsChannel {
@@ -67,6 +73,10 @@ export interface TsAdapter {
   locateUser(id: number): Promise<TsUser | undefined>;
 
   moveSelf(channelId: bigint, password?: string): Promise<void>;
+  /** Move another client to a channel (needs the server's move permission). */
+  moveUser(userId: number, channelId: bigint): Promise<void>;
+  /** How many seconds since this person last did anything, or undefined if the server would not say. */
+  idleSeconds(userId: number): Promise<number | undefined>;
   reply(to: IncomingMessage, text: string): Promise<void>;
   sendChannel(text: string): Promise<void>;
   sendPrivate(userId: number, text: string): Promise<void>;

@@ -140,6 +140,34 @@ export const APP_HTML = `<!doctype html>
     </section>
 
     <section class="card">
+      <h2>Community</h2>
+      <h3>AFK mover</h3>
+      <p id="afk-status" class="sub"></p>
+      <div class="row wrap">
+        <button id="btn-afk" type="button" class="quiet">Turn AFK mover on</button>
+        <label for="afk-minutes">After</label>
+        <input id="afk-minutes" type="number" min="1" max="1440" step="1" value="30" aria-label="Minutes until someone is moved">
+        <label for="afk-minutes">minutes</label>
+        <button id="btn-afk-minutes" type="button" class="quiet">Set</button>
+      </div>
+      <h3>Welcome message</h3>
+      <p id="welcome-status" class="sub"></p>
+      <textarea id="welcome-text" rows="3" maxlength="480" aria-label="The welcome message. {name} becomes the person's nickname."></textarea>
+      <div class="row wrap">
+        <button id="btn-welcome" type="button" class="quiet">Turn welcome message on</button>
+        <button id="btn-welcome-save" type="button" class="quiet" disabled>Save text</button>
+        <button id="btn-welcome-test" type="button" class="quiet">Send me a test</button>
+      </div>
+      <h3>Public widget</h3>
+      <p id="widget-status" class="sub"></p>
+      <div class="row wrap">
+        <button id="btn-widget" type="button" class="quiet">Turn widget on</button>
+        <button id="btn-widget-names" type="button" class="quiet">Show names</button>
+      </div>
+      <p class="sub">The AFK mover moves people who have been away, muted or idle to the AFK channel and moves them back when they are active. The widget is a public page for your website: it shows what is playing and who is online, and anyone who sends !hideme is left off the names. Bot admins are never moved.</p>
+    </section>
+
+    <section class="card">
       <h2>Auto-DJ and 24/7</h2>
       <p id="autodj-status" class="sub"></p>
       <div class="row wrap">
@@ -255,6 +283,8 @@ ol, ul { margin:0; padding:0; list-style:none; }
 .tab { background:transparent; }
 .tab.active { border-color:var(--orange); color:var(--orange); }
 .tab-body { display:grid; gap:14px; }
+textarea { width:100%; margin-top:6px; font:inherit; padding:9px 12px; border-radius:8px; border:1px solid var(--line); background:#0d1528; color:var(--text); resize:vertical; }
+input[type=number] { width:5.5em; font:inherit; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:#0d1528; color:var(--text); }
 select { font:inherit; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:#0d1528; color:var(--text); }
 pre.output, pre.logs { margin:12px 0 0; padding:10px 12px; border-radius:8px; border:1px solid var(--line); background:#0d1528; color:var(--text); font:12.5px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space:pre-wrap; overflow-wrap:anywhere; overflow:auto; }
 pre.output { max-height:220px; }
@@ -571,8 +601,41 @@ export const APP_JS = String.raw`
     }
     o.channels.forEach(function (c) { if (c.parentId === '0' || !known[c.parentId]) add(c, 0); });
     renderTools();
+    renderCommunity();
     renderAutoDj();
     renderTroll();
+  }
+
+  function renderCommunity() {
+    var c = overview.community, w = overview.widget;
+    var missing = !c;
+    ['btn-afk', 'btn-afk-minutes', 'btn-welcome', 'btn-welcome-test'].forEach(function (id) { $(id).disabled = missing; });
+    if (missing) {
+      $('afk-status').textContent = 'The community cog is not loaded. Add "community" to cogs in config.json and restart the bot.';
+      $('welcome-status').textContent = '';
+    } else {
+      var a = c.afk;
+      $('afk-status').textContent = 'AFK mover is ' + (a.enabled ? 'ON' : 'off') + '  |  moves people after ' + a.minutes + ' minutes away, muted or idle to "' + a.channel + '"' + (a.channelFound ? '' : '  (that channel does not exist!)')
+        + (a.moved.length ? '  |  in there now: ' + a.moved.map(function (m) { return m.name + ' (' + ago(m.at) + ')'; }).join(', ') : '');
+      $('btn-afk').textContent = a.enabled ? 'Turn AFK mover off' : 'Turn AFK mover on';
+      var mins = $('afk-minutes');
+      if (document.activeElement !== mins && mins.getAttribute('data-touched') !== '1') mins.value = String(a.minutes);
+      $('welcome-status').textContent = 'The welcome message is ' + (c.welcome.enabled ? 'ON' : 'off') + '. Everyone who joins gets this as a private message ({name} becomes their nickname):';
+      $('btn-welcome').textContent = c.welcome.enabled ? 'Turn welcome message off' : 'Turn welcome message on';
+      var box = $('welcome-text');
+      if (document.activeElement !== box && box.getAttribute('data-touched') !== '1') box.value = c.welcome.message;
+    }
+    var hasW = !!w;
+    $('btn-widget').disabled = !hasW;
+    $('btn-widget-names').disabled = !hasW;
+    if (hasW) {
+      $('widget-status').textContent = 'The public widget is ' + (w.enabled ? 'ON' : 'off') + ', showing ' + (w.showNames ? 'names and channels' : 'only how many are in each channel') + '.  Page: ' + w.url + '  |  '
+        + (w.origins.length ? 'embeddable on: ' + w.origins.join(', ') : 'no website may embed it yet (list them in web.widget.origins in config.json)') + (w.hidden ? '  |  ' + w.hidden + ' hidden by choice' : '');
+      $('btn-widget').textContent = w.enabled ? 'Turn widget off' : 'Turn widget on';
+      $('btn-widget-names').textContent = w.showNames ? 'Show only counts' : 'Show names';
+    } else {
+      $('widget-status').textContent = '';
+    }
   }
 
   function renderTools() {
@@ -770,6 +833,26 @@ export const APP_JS = String.raw`
   });
   $('btn-home').addEventListener('click', function () { run(state.prefix + 'leave'); });
   $('btn-search').addEventListener('click', function () { doSearch(); });
+  $('afk-minutes').addEventListener('input', function () { this.setAttribute('data-touched', '1'); });
+  $('welcome-text').addEventListener('input', function () { this.setAttribute('data-touched', '1'); $('btn-welcome-save').disabled = false; });
+  $('btn-afk').addEventListener('click', function () { run(state.prefix + 'afk ' + (overview.community.afk.enabled ? 'off' : 'on')); });
+  $('btn-afk-minutes').addEventListener('click', function () {
+    var n = Math.round(Number($('afk-minutes').value));
+    if (!(n >= 1 && n <= 1440)) return;
+    $('afk-minutes').removeAttribute('data-touched');
+    run(state.prefix + 'afk minutes ' + n);
+  });
+  $('btn-welcome').addEventListener('click', function () { run(state.prefix + 'welcome ' + (overview.community.welcome.enabled ? 'off' : 'on')); });
+  $('btn-welcome-save').addEventListener('click', function () {
+    var t = $('welcome-text').value.trim();
+    if (!t) return;
+    $('welcome-text').removeAttribute('data-touched');
+    $('btn-welcome-save').disabled = true;
+    run(state.prefix + 'welcome set ' + t);
+  });
+  $('btn-welcome-test').addEventListener('click', function () { run(state.prefix + 'welcome test'); });
+  $('btn-widget').addEventListener('click', function () { run(state.prefix + 'widget ' + (overview.widget.enabled ? 'off' : 'on')); });
+  $('btn-widget-names').addEventListener('click', function () { run(state.prefix + 'widget names ' + (overview.widget.showNames ? 'off' : 'on')); });
   $('btn-ytcheck').addEventListener('click', function () { run(state.prefix + 'ytcheck'); });
   $('btn-ytupdate').addEventListener('click', function () {
     if (confirm('Update yt-dlp now? It takes about a minute, and music may hiccup while it runs.')) run(state.prefix + 'ytupdate');

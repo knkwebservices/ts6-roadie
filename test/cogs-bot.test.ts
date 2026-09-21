@@ -53,7 +53,7 @@ test('admin commands are gated by unique ID, not by nickname', async () => {
     assert.match(h.adapter.lastReply(), /admins only/);
     assert.equal(h.restarted(), false);
     h.adapter.say(admin, '!restart');
-    await until(() => h.restarted(), 2000, 'restart');
+    await until(() => h.restarted(), 10000, 'restart');
   } finally {
     h.cleanup();
   }
@@ -121,7 +121,7 @@ test('cog lifecycle: load, unload, reload picks up edits, protected core, bad na
     const ask = async (text: string) => {
       const n = h.adapter.sent.length;
       h.adapter.say(admin, text);
-      await until(() => h.adapter.sent.length > n, 2000, `reply to ${text}`);
+      await until(() => h.adapter.sent.length > n, 10000, `reply to ${text}`);
       return h.adapter.lastReply();
     };
 

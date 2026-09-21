@@ -121,6 +121,8 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!goto <channel name>` | Admins only. Send the bot to a channel by name, or as `#<id>`. |
 | `!autodj [on\|off\|source radio <station>\|source playlist <name>]` | Admins only. See [Auto-DJ and 24/7](#auto-dj-and-247). |
 | `!stay [on\|off]` (`!247`) | Admins only. 24/7 mode: stay in the current channel. |
+| `!afk`, `!welcome`, `!widget` | Admins only. The [community tools](#community-tools-afk-mover-welcome-message-and-public-widget): AFK mover, welcome message and public widget. |
+| `!hideme [on\|off]` (`!hide`) | Leave your name off the public widget (you still count in the total). |
 | `!tools`, `!ytcheck`, `!ytupdate` | Admins only. Tool versions, a YouTube playback test, and a yt-dlp update. See [YouTube](#youtube). |
 | `!block <name or #number> [minutes]`, `!unblock`, `!blocklist`, `!blockword`, `!unblockword` | Admins only. See [Keeping trolls out](#keeping-trolls-out). |
 | `!help [command]`, `!ping`, `!whoami` | Everyone |
@@ -146,6 +148,8 @@ Behaviour worth knowing:
 | `server.homeChannel` | Where the bot lives and returns to |
 | `server.identityLevel` | Security level of the bot's identity (default 10). Raise it if a server demands more; higher levels take exponentially longer to generate. |
 | `voteskip.threshold` | A skip needs MORE than this fraction of the listeners to vote (default `0.5`, a majority; `0` means one vote is enough) |
+| `community.afk.*` / `community.welcome.*` | The [AFK mover and welcome message](#community-tools-afk-mover-welcome-message-and-public-widget), from the `community` cog (add `"community"` to `cogs`). `afk`: `enabled`, `channel` (default "AFK Room"), `minutes` (30), `warnSeconds` (60), `checkSeconds` (30), `exemptGroups` (server-group IDs), `ignoreChannels` (names). `welcome`: `enabled`, `message`, `cooldownSeconds` (60). |
+| `web.widget` | The public widget: `enabled`, `showNames`, and `origins`, the websites allowed to embed it or read its data, like `["https://tgscgaming.com"]` |
 | `web.host` / `web.port` / `web.codeMinutes` / `web.sessionHours` / `web.publicUrl` | The [web dashboard](#web-dashboard): where it listens (this machine only, port 8787 by default), how long a login code works (5 minutes), how long a browser stays signed in (12 hours), and the public https address when a [reverse proxy](#putting-the-dashboard-on-the-internet) serves it (empty by default) |
 | `permissions.commands` | Per-command access rules by server group or unique ID. See [Vote skip and permissions](#vote-skip-and-permissions). |
 | `playlists.maxPlaylists` / `playlists.maxTracks` | How many playlists the server may hold (default 50) and the longest one in tracks (default 100) |
@@ -202,7 +206,7 @@ The `web` cog is a control panel in a browser: what is playing with a progress b
 
 Nearly every button just runs a chat command as you, so it follows the same rules. Saving stations and reading the log have no chat command, so the server checks you are a bot admin for those.
 
-**On the Player tab** you can also search (type words and press Search, then Add on a result), see what was played recently and play any of it again, click the progress bar to jump to that point, cycle the Repeat button, and move queued tracks up and down. **Admins** additionally get a Tools card (versions, a YouTube test, a yt-dlp update), an Auto-DJ and 24/7 card, and a Troll control card, on the Admin tab: see [Auto-DJ and 24/7](#auto-dj-and-247) and [Keeping trolls out](#keeping-trolls-out).
+**On the Player tab** you can also search (type words and press Search, then Add on a result), see what was played recently and play any of it again, click the progress bar to jump to that point, cycle the Repeat button, and move queued tracks up and down. **Admins** additionally get a Tools card (versions, a YouTube test, a yt-dlp update), a Community card (AFK mover, welcome message and the public widget), an Auto-DJ and 24/7 card, and a Troll control card, on the Admin tab: see [Auto-DJ and 24/7](#auto-dj-and-247) and [Keeping trolls out](#keeping-trolls-out).
 
 **Safety.** The page only accepts requests addressed to this machine by name or number and from its own origin, which stops a malicious web page from driving it through your browser. Login cookies are HttpOnly and SameSite=Strict, request sizes and command rates are limited, and song titles and other outside text are only ever shown as plain text, never as HTML.
 
@@ -262,6 +266,22 @@ Everything here is for bot admins, and admins can never be blocked.
 - `!unblock <name or number>` lifts it, and `!blocklist` shows who is blocked, the blocked words and the per-person limit.
 - `audio.maxQueuePerUser` limits how many tracks one person can have queued at once, so nobody can fill the queue by themselves.
 - `!blockword <word>` (and `audio.blockedWords`) keeps any track with that word in its title or address out of the queue. Only admins can still add them.
+
+### Community tools: AFK mover, welcome message and public widget
+
+These come from the `community` cog and the dashboard, and everything is **off until you switch it on**. To use the AFK mover and the welcome message, add `"community"` to `cogs` in `config.json` and restart the bot. The bot also needs permission on your TeamSpeak server to move people (a server admin group has it).
+
+**AFK mover.** `!afk on` (or the switch on the dashboard's Community card). A person is moved to the AFK channel after `community.afk.minutes` (default 30) of being away, muted (microphone *or* speakers) or idle. Set the minutes with `!afk minutes 45` and the channel with `!afk channel <name>`. Before it moves someone the bot sends them a private warning (`community.afk.warnSeconds`, default 60 seconds), and afterwards a note saying where they are and that they will be brought back. As soon as they are active again (not away, not muted, and they have done something in the last minute) they are moved back to where they were, even if the bot restarted in between. It never moves bot admins, members of `community.afk.exemptGroups`, people in `community.afk.ignoreChannels`, or people who went to the AFK channel by choice. To judge idle time the bot asks the server about a few people at a time, so a busy server is not flooded with questions.
+
+**Welcome message.** `!welcome on`, then `!welcome set Welcome, {name}! ...` (up to 500 characters; `{name}` becomes their nickname) and `!welcome test` to see it. Everyone who joins gets it as a private message, each time. People already on the server when the bot connects are not greeted, and someone reconnecting within a minute is not greeted twice.
+
+**Public widget.** For a website: `!widget on`. It gives you two addresses on your dashboard's host: `/widget`, a small page to put in an `<iframe>`, and `/widget.json`, the data for your own script. Both show what is playing (with the live song for a radio station) and who is online by name and channel. Only channels with someone in them are listed, and nothing private is included: no unique IDs, no addresses of what is playing, no requesters. `!widget names off` shows only how many people are in each channel. Anyone can send the bot `!hideme` to leave their name off (they still count in the total).
+
+```html
+<iframe src="https://ts6.example.com/widget" width="320" height="260" style="border:0" title="Now playing and who is online"></iframe>
+```
+
+By default no other website may embed the page or read the data with a script. List the websites you want in `web.widget.origins` in `config.json` (for example `"origins": ["https://tgscgaming.com"]`) and restart. The widget is read only and needs no login, but it is public: anyone with the address can see it, so think about whether you want names shown. It is limited to 60 requests a minute per visitor, the answer is kept for a few seconds, and the pages ask search engines not to list them. The rest of the dashboard is as closed as before.
 
 ### Playlists
 

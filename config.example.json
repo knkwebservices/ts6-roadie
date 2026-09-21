@@ -39,7 +39,25 @@
     "port": 8787,
     "codeMinutes": 5,
     "sessionHours": 12,
-    "publicUrl": ""
+    "publicUrl": "",
+    "widget": { "enabled": false, "showNames": true, "origins": [] }
+  },
+
+  "community": {
+    "afk": {
+      "enabled": false,
+      "channel": "AFK Room",
+      "minutes": 30,
+      "warnSeconds": 60,
+      "checkSeconds": 30,
+      "exemptGroups": [],
+      "ignoreChannels": []
+    },
+    "welcome": {
+      "enabled": false,
+      "message": "Welcome, {name}! I'm the music bot. Send me a private message saying !help to see what I can do.",
+      "cooldownSeconds": 60
+    }
   },
 
   "permissions": {

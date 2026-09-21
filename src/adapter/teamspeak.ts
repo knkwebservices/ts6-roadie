@@ -207,7 +207,16 @@ export class TeamspeakAdapter implements TsAdapter {
     const self = this.selfId;
     return this.#snapshot.clients
       .filter((c) => c.type === CLIENT_TYPE_NORMAL && c.id !== self)
-      .map((c) => ({ id: c.id, uid: c.uid, name: c.nickname, channelId: c.channelID, groups: parseGroupIds(c.serverGroups) }));
+      .map((c) => ({
+        id: c.id,
+        uid: c.uid,
+        name: c.nickname,
+        channelId: c.channelID,
+        groups: parseGroupIds(c.serverGroups),
+        away: c.away,
+        inputMuted: c.inputMuted,
+        outputMuted: c.outputMuted,
+      }));
   }
 
   usersInChannel(channelId: bigint): TsUser[] {
@@ -239,6 +248,21 @@ export class TeamspeakAdapter implements TsAdapter {
   async moveSelf(channelId: bigint, password = ''): Promise<void> {
     const c = this.#need();
     await clientMove(c, c.clientID(), channelId, password);
+  }
+
+  async moveUser(userId: number, channelId: bigint): Promise<void> {
+    await clientMove(this.#need(), userId, channelId);
+  }
+
+  async idleSeconds(userId: number): Promise<number | undefined> {
+    try {
+      const info = await getClientInfo(this.#need(), userId);
+      const ms = Number(info['client_idle_time']);
+      return Number.isFinite(ms) && ms >= 0 ? Math.floor(ms / 1000) : undefined;
+    } catch (e) {
+      this.#log.debug(`idleSeconds(${userId}) query failed: ${errMessage(e)}`);
+      return undefined;
+    }
   }
 
   async sendPrivate(userId: number, text: string): Promise<void> {

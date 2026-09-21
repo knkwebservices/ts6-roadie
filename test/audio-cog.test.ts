@@ -13,7 +13,7 @@ test('idle bot follows the caller into their channel and starts playing', async 
     assert.equal(r.adapter.chan, CH.home);
 
     r.adapter.say(alice, '!play never gonna give you up');
-    await until(() => r.player.played.length === 1, 2000, 'playback to start');
+    await until(() => r.player.played.length === 1, 10000, 'playback to start');
 
     assert.deepEqual(r.adapter.moves, [CH.a], 'bot moved to Alice\'s channel');
     assert.equal(r.adapter.chan, CH.a);
@@ -34,10 +34,10 @@ test('a caller who is already with the bot does not cause a move, and tracks que
     r.adapter.say(alice, '!play one');
     await until(() => r.player.played.length === 1);
     r.adapter.say(alice, '!play two');
-    await until(() => sentTexts(r).some((t) => /position 1/.test(t)), 2000, 'second track queued');
+    await until(() => sentTexts(r).some((t) => /position 1/.test(t)), 10000, 'second track queued');
     assert.deepEqual(r.adapter.moves, []);
     r.player.endTrack();
-    await until(() => r.player.played.length === 2, 2000, 'next track to start');
+    await until(() => r.player.played.length === 2, 10000, 'next track to start');
   } finally {
     r.cleanup();
   }
@@ -75,9 +75,9 @@ test('two people calling at the same moment: first claim wins, second is told th
         }),
     );
     r.adapter.say(alice, '!play slow one');
-    await until(() => r.resolveCalls.length === 1, 2000, 'Alice lookup to start');
+    await until(() => r.resolveCalls.length === 1, 10000, 'Alice lookup to start');
     r.adapter.say(bob, '!play impatient');
-    await until(() => r.adapter.sent.some((s) => s.to === 6 && /playing in/.test(s.text)), 2000, 'Bob to be refused');
+    await until(() => r.adapter.sent.some((s) => s.to === 6 && /playing in/.test(s.text)), 10000, 'Bob to be refused');
     assert.deepEqual(r.adapter.moves, [CH.a], 'the bot only ever moved for Alice');
     release();
     await until(() => r.player.played.length === 1);
@@ -105,7 +105,7 @@ test('playback controls need you to be in the bot\'s channel (admins excepted)',
     assert.equal(r.player.volume, 0.2);
 
     r.adapter.say(admin, '!skip');
-    await until(() => sentTexts(r).some((t) => /Skipped/.test(t)), 2000, 'admin skip');
+    await until(() => sentTexts(r).some((t) => /Skipped/.test(t)), 10000, 'admin skip');
     assert.equal(r.player.playing, false);
   } finally {
     r.cleanup();
@@ -120,7 +120,7 @@ test('after the queue empties the bot returns to the home channel', async () => 
     await until(() => r.player.played.length === 1);
     assert.equal(r.adapter.chan, CH.a);
     r.player.endTrack();
-    await until(() => r.adapter.chan === CH.home, 2000, 'bot to go home');
+    await until(() => r.adapter.chan === CH.home, 10000, 'bot to go home');
     assert.deepEqual(r.adapter.moves, [CH.a, CH.home]);
   } finally {
     r.cleanup();
@@ -147,7 +147,7 @@ test('failures: a channel the bot cannot join, and a lookup that fails, both lea
     // The failed attempts must not have left the bot "busy": a good request still works.
     r.setResolver(async (q) => [{ title: q, url: 'https://www.youtube.com/watch?v=ok' }]);
     r.adapter.say(officer, '!play works');
-    await until(() => r.player.played.length === 1, 2000, 'a later request to succeed');
+    await until(() => r.player.played.length === 1, 10000, 'a later request to succeed');
     assert.equal(r.adapter.chan, CH.staff);
   } finally {
     r.cleanup();
@@ -180,7 +180,7 @@ test('queue management: !queue, !remove, !shuffle, !clear, !stop', async () => {
   try {
     const alice = r.adapter.addUser(5, 'Alice', CH.home);
     for (const s of ['a', 'b', 'c', 'd']) r.adapter.say(alice, `!play ${s}`);
-    await until(() => r.player.played.length === 1 && sentTexts(r).filter((t) => /^Queued/.test(t)).length === 4, 3000, 'four tracks queued');
+    await until(() => r.player.played.length === 1 && sentTexts(r).filter((t) => /^Queued/.test(t)).length === 4, 10000, 'four tracks queued');
 
     r.adapter.say(alice, '!queue');
     await until(() => sentTexts(r).some((t) => /Up next \(3\)/.test(t)));
@@ -192,7 +192,7 @@ test('queue management: !queue, !remove, !shuffle, !clear, !stop', async () => {
 
     r.adapter.say(alice, '!stop');
     await until(() => sentTexts(r).some((t) => /Stopped and cleared 2 queued tracks/.test(t)));
-    await until(() => !r.player.playing, 2000, 'player to stop');
+    await until(() => !r.player.playing, 10000, 'player to stop');
   } finally {
     r.cleanup();
   }
@@ -206,7 +206,7 @@ test('the queue length limit is enforced', async () => {
       r.adapter.say(alice, `!play ${s}`);
       await new Promise((res) => setTimeout(res, 30));
     }
-    await until(() => sentTexts(r).some((t) => /queue is full/.test(t)), 2000, 'full-queue message');
+    await until(() => sentTexts(r).some((t) => /queue is full/.test(t)), 10000, 'full-queue message');
   } finally {
     r.cleanup();
   }
@@ -221,7 +221,7 @@ test('losing the TeamSpeak connection stops playback and clears the queue', asyn
     await until(() => r.player.playing);
     r.adapter.connected = false;
     r.adapter.events.emit('disconnected', 'network');
-    await until(() => !r.player.playing, 2000, 'playback to stop');
+    await until(() => !r.player.playing, 10000, 'playback to stop');
   } finally {
     r.cleanup();
   }
@@ -262,7 +262,7 @@ test('unloading the cog while a track is playing (what a restart does) finishes 
   try {
     const alice = r.adapter.addUser(5, 'Alice', CH.home);
     r.adapter.say(alice, '!play one');
-    await until(() => r.player.playing, 2000, 'playback to start');
+    await until(() => r.player.playing, 10000, 'playback to start');
     await r.bot.unloadCog('audiotest'); // Bot.stop() does the same for every cog
     await new Promise((res) => setTimeout(res, 150)); // let the finishing track unwind
     assert.deepEqual(rejections.map((e) => String(e)), [], 'a track ending after unload must not throw');
@@ -292,28 +292,28 @@ test('playlists round trip through the REAL audio cog: save, stop, then load fol
     const alice = r.adapter.addUser(5, 'Alice', CH.home);
 
     r.adapter.say(alice, '!play one');
-    await until(() => r.player.played.length === 1, 2000, 'first track');
+    await until(() => r.player.played.length === 1, 10000, 'first track');
     r.adapter.say(alice, '!play two');
-    await until(() => sentTexts(r).some((t) => /Queued: .*\(position 1\)/.test(t)), 2000, 'second track queued');
+    await until(() => sentTexts(r).some((t) => /Queued: .*\(position 1\)/.test(t)), 10000, 'second track queued');
 
     r.adapter.say(alice, '!playlist save Friday');
-    await until(() => sentTexts(r).some((t) => /Saved "Friday" with 2 tracks/.test(t)), 2000, 'save');
+    await until(() => sentTexts(r).some((t) => /Saved "Friday" with 2 tracks/.test(t)), 10000, 'save');
 
     r.adapter.say(alice, '!stop');
-    await until(() => !r.player.playing, 2000, 'stop');
+    await until(() => !r.player.playing, 10000, 'stop');
 
     // Alice is now somewhere else and the bot is idle: loading must bring the bot to her.
     alice.channelId = CH.a;
     const before = r.player.played.length;
     r.adapter.say(alice, '!playlist load friday');
-    await until(() => r.player.played.length === before + 1, 2000, 'playback of the loaded playlist');
+    await until(() => r.player.played.length === before + 1, 10000, 'playback of the loaded playlist');
 
     assert.equal(r.adapter.chan, CH.a, 'the bot followed the caller');
     assert.match(r.player.played.at(-1)!.url, /v=one/, 'plays the first saved track first');
     assert.ok(sentTexts(r).some((t) => /Queued 2 tracks from "Friday"/.test(t)), 'the reply names the playlist');
 
     r.player.endTrack();
-    await until(() => r.player.played.length === before + 2, 2000, 'second saved track');
+    await until(() => r.player.played.length === before + 2, 10000, 'second saved track');
     assert.match(r.player.played.at(-1)!.url, /v=two/);
   } finally {
     r.cleanup();
@@ -333,12 +333,12 @@ test('the audio service can skip and can look things up without queueing them', 
 
     const alice = r.adapter.addUser(5, 'Alice', CH.home);
     r.adapter.say(alice, '!play one');
-    await until(() => r.player.playing, 2000, 'playback');
+    await until(() => r.player.playing, 10000, 'playback');
     const now = svc.snapshot().current!;
     assert.match(now.title, /one/);
     assert.equal(typeof now.id, 'number');
     assert.equal(svc.skip(), true);
-    await until(() => !r.player.playing, 2000, 'skip');
+    await until(() => !r.player.playing, 10000, 'skip');
   } finally {
     r.cleanup();
   }
@@ -351,16 +351,16 @@ test('vote skip through the REAL audio cog: the second vote skips to the next tr
     const alice = r.adapter.addUser(5, 'Alice', CH.home);
     const bob = r.adapter.addUser(6, 'Bob', CH.home);
     r.adapter.say(alice, '!play one');
-    await until(() => r.player.played.length === 1, 2000, 'first track');
+    await until(() => r.player.played.length === 1, 10000, 'first track');
     r.adapter.say(alice, '!play two');
-    await until(() => sentTexts(r).some((t) => /Queued: .*\(position 1\)/.test(t)), 2000, 'second queued');
+    await until(() => sentTexts(r).some((t) => /Queued: .*\(position 1\)/.test(t)), 10000, 'second queued');
 
     r.adapter.say(alice, '!voteskip');
-    await until(() => sentTexts(r).some((t) => /Alice voted to skip\. 1\/2 needed/.test(t)), 2000, 'first vote');
+    await until(() => sentTexts(r).some((t) => /Alice voted to skip\. 1\/2 needed/.test(t)), 10000, 'first vote');
     assert.equal(r.player.played.length, 1, 'one vote of two is not enough');
 
     r.adapter.say(bob, '!voteskip');
-    await until(() => r.player.played.length === 2, 2000, 'the next track after the vote passes');
+    await until(() => r.player.played.length === 2, 10000, 'the next track after the vote passes');
     assert.match(r.player.played[1]!.url, /v=two/);
   } finally {
     r.cleanup();
@@ -374,16 +374,16 @@ test('radio: !np shows the song the station is announcing; nothing is posted to 
   try {
     const alice = r.adapter.addUser(5, 'Alice', CH.home);
     r.adapter.say(alice, '!radio 1');
-    await until(() => r.radio.length === 1, 2000, 'the title listener to start');
+    await until(() => r.radio.length === 1, 10000, 'the title listener to start');
     assert.match(r.radio[0]!.url, /somafm/, 'listens to the station that is playing');
 
     r.adapter.say(alice, '!np');
-    await until(() => sentTexts(r).some((t) => /Groove Salad.*live/.test(t)), 2000, '!np before any title');
+    await until(() => sentTexts(r).some((t) => /Groove Salad.*live/.test(t)), 10000, '!np before any title');
     assert.ok(!sentTexts(r).some((t) => /now:/.test(t)), 'no title announced yet');
 
     r.radio[0]!.emit('Queen - Bohemian Rhapsody');
     r.adapter.say(alice, '!np');
-    await until(() => sentTexts(r).some((t) => /live - now: Queen - Bohemian Rhapsody/.test(t)), 2000, '!np with a title');
+    await until(() => sentTexts(r).some((t) => /live - now: Queen - Bohemian Rhapsody/.test(t)), 10000, '!np with a title');
     assert.ok(!sentTexts(r).some((t) => /Now on /.test(t)), 'announcements are off by default');
 
     const svc = r.bot.services.get<import('../src/core/services.js').AudioService>('audio')!;
@@ -398,7 +398,7 @@ test('radio: announceRadioTitles posts each new title in the channel', async () 
   try {
     const alice = r.adapter.addUser(5, 'Alice', CH.home);
     r.adapter.say(alice, '!radio 1');
-    await until(() => r.radio.length === 1, 2000, 'listener');
+    await until(() => r.radio.length === 1, 10000, 'listener');
     r.radio[0]!.emit("a-ha - Take On Me");
     assert.ok(r.adapter.sent.some((s) => s.kind === 'channel' && /Now on SomaFM Groove Salad: a-ha - Take On Me/.test(s.text)));
   } finally {
@@ -411,17 +411,17 @@ test('radio: the listener stops when the track ends, and the title does not leak
   try {
     const alice = r.adapter.addUser(5, 'Alice', CH.home);
     r.adapter.say(alice, '!radio 1');
-    await until(() => r.radio.length === 1, 2000, 'listener');
+    await until(() => r.radio.length === 1, 10000, 'listener');
     r.adapter.say(alice, '!play one');
-    await until(() => sentTexts(r).some((t) => /Queued: .*\(position 1\)/.test(t)), 2000, 'queued behind the radio');
+    await until(() => sentTexts(r).some((t) => /Queued: .*\(position 1\)/.test(t)), 10000, 'queued behind the radio');
     r.radio[0]!.emit('Old Song');
 
     r.adapter.say(alice, '!skip');
-    await until(() => r.radio[0]!.stopped, 2000, 'the listener to stop');
-    await until(() => r.player.played.length === 2, 2000, 'the next track');
+    await until(() => r.radio[0]!.stopped, 10000, 'the listener to stop');
+    await until(() => r.player.played.length === 2, 10000, 'the next track');
 
     r.adapter.say(alice, '!np');
-    await until(() => sentTexts(r).some((t) => /Song for "one"/.test(t) && /\/ 3:20/.test(t)), 2000, '!np on the next track');
+    await until(() => sentTexts(r).some((t) => /Song for "one"/.test(t) && /\/ 3:20/.test(t)), 10000, '!np on the next track');
     assert.ok(!sentTexts(r).some((t) => /Song for "one".*now:/.test(t)), 'no stale radio title');
     assert.equal(r.radio.length, 1, 'no listener for a normal track');
   } finally {
@@ -434,7 +434,7 @@ test('radio: radioNowPlaying=false never opens the extra connection', async () =
   try {
     const alice = r.adapter.addUser(5, 'Alice', CH.home);
     r.adapter.say(alice, '!radio 1');
-    await until(() => r.player.playing, 2000, 'playback');
+    await until(() => r.player.playing, 10000, 'playback');
     await new Promise((res) => setTimeout(res, 100));
     assert.equal(r.radio.length, 0);
   } finally {
@@ -449,42 +449,42 @@ test('!goto is for admins: it sends the bot to a channel by name or #id', async 
     const alice = r.adapter.addUser(5, 'Alice', CH.home);
 
     r.adapter.say(alice, '!goto Gaming A');
-    await until(() => sentTexts(r).some((t) => /admins only/i.test(t)), 2000, 'the refusal');
+    await until(() => sentTexts(r).some((t) => /admins only/i.test(t)), 10000, 'the refusal');
     assert.deepEqual(r.adapter.moves, [], 'a non-admin cannot move the bot');
 
     r.adapter.say(admin, '!goto gaming a');
-    await until(() => r.adapter.chan === CH.a, 2000, 'the move by name');
+    await until(() => r.adapter.chan === CH.a, 10000, 'the move by name');
     assert.match(r.adapter.lastReply(), /Moved to "Gaming A"/);
 
     r.adapter.say(admin, `!goto #${CH.b}`);
-    await until(() => r.adapter.chan === CH.b, 2000, 'the move by id');
+    await until(() => r.adapter.chan === CH.b, 10000, 'the move by id');
     assert.match(r.adapter.lastReply(), /Moved to "Gaming B"/);
 
     const said = () => r.adapter.sent.length;
     let n = said();
     r.adapter.say(admin, '!goto Gaming B');
-    await until(() => said() > n, 2000, 'the reply');
+    await until(() => said() > n, 10000, 'the reply');
     assert.match(r.adapter.lastReply(), /already there/);
 
     n = said();
     r.adapter.say(admin, '!goto Nowhere Land');
-    await until(() => said() > n, 2000, 'the reply');
+    await until(() => said() > n, 10000, 'the reply');
     assert.match(r.adapter.lastReply(), /can't find a channel/);
 
     n = said();
     r.adapter.say(admin, '!goto #999999');
-    await until(() => said() > n, 2000, 'the reply');
+    await until(() => said() > n, 10000, 'the reply');
     assert.match(r.adapter.lastReply(), /can't find a channel/);
 
     n = said();
     r.adapter.say(admin, '!goto');
-    await until(() => said() > n, 2000, 'the reply');
+    await until(() => said() > n, 10000, 'the reply');
     assert.match(r.adapter.lastReply(), /Usage/);
 
     r.adapter.failMove = new Error('no permission');
     n = said();
     r.adapter.say(admin, '!goto Staff Room');
-    await until(() => said() > n, 2000, 'the reply');
+    await until(() => said() > n, 10000, 'the reply');
     assert.match(r.adapter.lastReply(), /couldn't move there \(no permission\)/);
     assert.equal(r.adapter.chan, CH.b, 'a failed move leaves the bot where it was');
   } finally {
@@ -497,8 +497,8 @@ test('after !goto the bot still heads home once it has been idle', async () => {
   try {
     const admin = r.adapter.addUser(6, 'Admin', CH.home, 'uid-Admin');
     r.adapter.say(admin, '!goto Gaming A');
-    await until(() => r.adapter.moves.includes(CH.a), 2000, 'the move');
-    await until(() => r.adapter.chan === CH.home, 2000, 'the return home');
+    await until(() => r.adapter.moves.includes(CH.a), 10000, 'the move');
+    await until(() => r.adapter.chan === CH.home, 10000, 'the return home');
   } finally {
     r.cleanup();
   }

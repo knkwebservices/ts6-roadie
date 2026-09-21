@@ -1,7 +1,7 @@
 import { closeSync, copyFileSync, existsSync, fstatSync, openSync, readFileSync, readdirSync, readSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildConfig, ConfigError } from '../../config.js';
-import { AUDIO_SERVICE, type AudioService } from '../../core/services.js';
+import { AUDIO_SERVICE, COMMUNITY_SERVICE, type AudioService, type CommunityService } from '../../core/services.js';
 import type { BotApi } from '../../core/types.js';
 import { errMessage } from '../../util/text.js';
 import { writeJsonAtomic } from '../../util/fs.js';
@@ -169,7 +169,7 @@ export function cleanStations(input: unknown): { ok: true; stations: StationRow[
   return { ok: true, stations: out };
 }
 
-export function createAdminApi(bot: BotApi): AdminApi {
+export function createAdminApi(bot: BotApi, extras: { widget?: () => unknown } = {}): AdminApi {
   const currentStations = (): StationRow[] => Object.entries(bot.config.audio.radioStations).map(([key, s]) => ({ key, name: s.name, url: s.url }));
 
   return {
@@ -194,6 +194,8 @@ export function createAdminApi(bot: BotApi): AdminApi {
         })),
         troll: audio?.troll?.() ?? null,
         tools: audio?.tools?.() ?? null,
+        community: bot.services.get<CommunityService>(COMMUNITY_SERVICE)?.state() ?? null,
+        widget: extras.widget?.() ?? null,
       };
     },
 

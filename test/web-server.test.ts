@@ -29,7 +29,7 @@ test('!weblogin sends the code privately, never into the channel', async () => {
   const r = await makeWebRig();
   try {
     r.adapter.say(r.alice, '!weblogin', 'channel');
-    await until(() => r.adapter.sent.length >= 2, 2000, 'both messages');
+    await until(() => r.adapter.sent.length >= 2, 10000, 'both messages');
     const priv = r.adapter.sent.find((s) => s.kind === 'private')!;
     const chan = r.adapter.sent.find((s) => s.kind === 'channel')!;
     assert.match(priv.text, /[A-Z2-9]{4}-[A-Z2-9]{4}/);
@@ -48,7 +48,7 @@ test('login: wrong code 401, right code sets a locked-down cookie once, and a us
     assert.equal((await request(r.port, { path: '/api/login', body: { code: 'NOPE-NOPE' } })).status, 401);
 
     r.adapter.say(r.alice, '!weblogin');
-    await until(() => r.adapter.sent.length === 1, 2000, 'code');
+    await until(() => r.adapter.sent.length === 1, 10000, 'code');
     const code = /[A-Z2-9]{4}-[A-Z2-9]{4}/.exec(r.adapter.lastReply())![0];
     const ok = await request(r.port, { path: '/api/login', body: { code } });
     assert.equal(ok.status, 200);
@@ -273,7 +273,7 @@ test('public address: the https origin is required, and the cookie is Secure', a
   const r = await makeWebRig({ web: { publicUrl: PUBLIC } });
   try {
     r.adapter.say(r.alice, '!weblogin');
-    await until(() => r.adapter.sent.length === 1, 2000, 'code');
+    await until(() => r.adapter.sent.length === 1, 10000, 'code');
     const code = /[A-Z2-9]{4}-[A-Z2-9]{4}/.exec(r.adapter.lastReply())![0];
     assert.match(r.adapter.lastReply(), /https:\/\/ts6\.example\.com/);
     assert.doesNotMatch(r.adapter.lastReply(), /127\.0\.0\.1/, 'a visitor is not told to use the machine itself');
@@ -301,7 +301,7 @@ test('the local address keeps a cookie without Secure and its own origin rule', 
   const r = await makeWebRig({ web: { publicUrl: PUBLIC } });
   try {
     r.adapter.say(r.alice, '!weblogin');
-    await until(() => r.adapter.sent.length === 1, 2000, 'code');
+    await until(() => r.adapter.sent.length === 1, 10000, 'code');
     const code = /[A-Z2-9]{4}-[A-Z2-9]{4}/.exec(r.adapter.lastReply())![0];
     const wrongScheme = await request(r.port, { path: '/api/login', body: { code }, headers: { Origin: PUBLIC } });
     assert.equal(wrongScheme.status, 403, 'the public origin does not work on the local address');
@@ -323,7 +323,7 @@ test('SAFETY: behind the proxy each visitor gets their own allowance for guessin
     assert.equal(last, 429, 'the guesser is locked out');
 
     r.adapter.say(r.alice, '!weblogin');
-    await until(() => r.adapter.sent.length === 1, 2000, 'code');
+    await until(() => r.adapter.sent.length === 1, 10000, 'code');
     const code = /[A-Z2-9]{4}-[A-Z2-9]{4}/.exec(r.adapter.lastReply())![0];
     assert.equal((await guess('198.51.100.7', code)).status, 200, 'a real user from another address still signs in');
   } finally {

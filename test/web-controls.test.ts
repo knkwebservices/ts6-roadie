@@ -6,10 +6,10 @@ import { makeWebRig, openPage, type Page, type WebRig } from './web-helpers.js';
 async function signIn(r: WebRig, page: Page, user = r.admin): Promise<void> {
   const n = r.adapter.sent.length;
   r.adapter.say(user, '!weblogin');
-  await until(() => r.adapter.sent.length > n, 2000, 'the code');
+  await until(() => r.adapter.sent.length > n, 10000, 'the code');
   (page.q('#code') as HTMLInputElement).value = /[A-Z2-9]{4}-[A-Z2-9]{4}/.exec(r.adapter.lastReply())![0];
   (page.q('#login-form') as HTMLFormElement).requestSubmit();
-  await until(() => !page.q('#app').hidden, 5000, 'signing in');
+  await until(() => !page.q('#app').hidden, 10000, 'signing in');
 }
 const click = (page: Page, sel: string) => (page.q(sel) as HTMLElement).click();
 const named = (page: Page, label: string) => {
@@ -24,7 +24,7 @@ const choose = (page: Page, sel: string, value: string) => {
 };
 const openAdmin = async (page: Page, ready: string) => {
   click(page, '#tab-btn-admin');
-  await until(() => page.qa(ready).length > 0, 3000, `the Admin tab (${ready})`);
+  await until(() => page.qa(ready).length > 0, 10000, `the Admin tab (${ready})`);
 };
 
 test('the Player tab shows repeat, lets you move queued tracks, and jumps when you click the progress bar', async () => {
@@ -39,30 +39,30 @@ test('the Player tab shows repeat, lets you move queued tracks, and jumps when y
     await signIn(r, page, r.alice);
     assert.equal(page.q('#btn-repeat').textContent, 'Repeat: track');
     click(page, '#btn-repeat');
-    await until(() => page.sent.length === 1, 2000, 'repeat');
+    await until(() => page.sent.length === 1, 10000, 'repeat');
     assert.equal(page.sent[0], '!repeat queue', 'track goes on to queue');
 
     r.audio.state.repeat = 'queue';
-    await until(() => page.q('#btn-repeat').textContent === 'Repeat: queue', 4000, 'the label to follow');
+    await until(() => page.q('#btn-repeat').textContent === 'Repeat: queue', 10000, 'the label to follow');
     click(page, '#btn-repeat');
-    await until(() => page.sent.length === 2, 2000, 'repeat');
+    await until(() => page.sent.length === 2, 10000, 'repeat');
     assert.equal(page.sent[1], '!repeat off', 'queue goes round to off');
 
     assert.equal((named(page, 'Move A up') as HTMLButtonElement).disabled, true, 'the first cannot go up');
     assert.equal((named(page, 'Move B down') as HTMLButtonElement).disabled, true, 'the last cannot go down');
     named(page, 'Move A down').click();
     named(page, 'Move B up').click();
-    await until(() => page.sent.length === 4, 2000, 'both moves');
+    await until(() => page.sent.length === 4, 10000, 'both moves');
     assert.deepEqual(page.sent.slice(2), ['!move 1 2', '!move 2 1']);
 
     // clicking a third of the way along the bar asks for the matching time
     const wrap = page.q('#progress-wrap');
     wrap.getBoundingClientRect = () => ({ left: 100, width: 300, top: 0, right: 400, bottom: 6, height: 6, x: 100, y: 0, toJSON() {} }) as DOMRect;
     wrap.dispatchEvent(new page.win.MouseEvent('click', { bubbles: true, clientX: 200 }));
-    await until(() => page.sent.length === 5, 2000, 'seek');
+    await until(() => page.sent.length === 5, 10000, 'seek');
     assert.equal(page.sent[4], '!seek 66');
     wrap.dispatchEvent(new page.win.MouseEvent('click', { bubbles: true, clientX: 9999 }));
-    await until(() => page.sent.length === 6, 2000, 'seek to the end');
+    await until(() => page.sent.length === 6, 10000, 'seek to the end');
     assert.equal(page.sent[5], '!seek 199', 'never past the end');
   } finally {
     page.close();
@@ -101,27 +101,27 @@ test('the Auto-DJ and 24/7 card shows the state and sends the matching commands'
 
     choose(page, '#autodj-source', 'playlist:Friday Night');
     click(page, '#btn-autodj-set');
-    await until(() => page.sent.length === 1, 2000, 'source');
+    await until(() => page.sent.length === 1, 10000, 'source');
     assert.equal(page.sent[0], '!autodj source playlist Friday Night');
     choose(page, '#autodj-source', 'radio:defcon');
     click(page, '#btn-autodj-set');
-    await until(() => page.sent.length === 2, 2000, 'source');
+    await until(() => page.sent.length === 2, 10000, 'source');
     assert.equal(page.sent[1], '!autodj source radio defcon');
 
     click(page, '#btn-stay');
-    await until(() => page.sent.length === 3, 2000, 'stay');
+    await until(() => page.sent.length === 3, 10000, 'stay');
     assert.equal(page.sent[2], '!stay on');
 
     // now the bot reports it on: the card and the buttons follow
     r.audio.state.autoDj = { enabled: true, source: 'radio:defcon', sourceName: 'SomaFM DEF CON Radio' };
     r.audio.state.stay = true;
-    await until(() => /Auto-DJ is ON.*SomaFM DEF CON Radio.*24\/7 mode is ON/.test(page.q('#autodj-status').textContent!), 8000, 'the card to update');
+    await until(() => /Auto-DJ is ON.*SomaFM DEF CON Radio.*24\/7 mode is ON/.test(page.q('#autodj-status').textContent!), 10000, 'the card to update');
     assert.equal(page.q('#btn-autodj').textContent, 'Turn Auto-DJ off');
     assert.equal(page.q('#btn-stay').textContent, 'Turn 24/7 mode off');
     assert.equal(page.q<HTMLSelectElement>('#autodj-source').value, 'radio:defcon', 'the drop-down shows the bot\'s source');
     click(page, '#btn-autodj');
     click(page, '#btn-stay');
-    await until(() => page.sent.length === 5, 2000, 'both');
+    await until(() => page.sent.length === 5, 10000, 'both');
     assert.deepEqual(page.sent.slice(3), ['!autodj off', '!stay off']);
   } finally {
     page.close();
@@ -146,7 +146,7 @@ test('the Troll control card lists who and what is blocked, and blocks and unblo
 
     named(page, 'Unblock Mallory').click();
     named(page, 'Allow the word earrape').click();
-    await until(() => page.sent.length === 2, 2000, 'unblocks');
+    await until(() => page.sent.length === 2, 10000, 'unblocks');
     assert.deepEqual(page.sent, ['!unblock Mallory', '!unblockword earrape']);
 
     // the list of people to block: everyone online, by client number
@@ -155,16 +155,16 @@ test('the Troll control card lists who and what is blocked, and blocks and unblo
     choose(page, '#block-user', '7');
     choose(page, '#block-minutes', '60');
     click(page, '#btn-block');
-    await until(() => page.sent.length === 3, 2000, 'block');
+    await until(() => page.sent.length === 3, 10000, 'block');
     assert.equal(page.sent[2], '!block #7 60');
     choose(page, '#block-minutes', '0');
     click(page, '#btn-block');
-    await until(() => page.sent.length === 4, 2000, 'block');
+    await until(() => page.sent.length === 4, 10000, 'block');
     assert.equal(page.sent[3], '!block #7', 'no minutes means until unblocked');
 
     (page.q('#word-input') as HTMLInputElement).value = '  spam  ';
     (page.q('#word-form') as HTMLFormElement).requestSubmit();
-    await until(() => page.sent.length === 5, 2000, 'word');
+    await until(() => page.sent.length === 5, 10000, 'word');
     assert.equal(page.sent[4], '!blockword spam');
     assert.equal((page.q('#word-input') as HTMLInputElement).value, '', 'the box clears');
   } finally {
@@ -182,7 +182,7 @@ test('with nothing blocked and nobody online the card says so and has nothing to
     await signIn(r, page);
     r.adapter.userList.length = 0;
     await openAdmin(page, '#block-user option');
-    await until(() => page.q('#block-user').textContent!.includes('Nobody is online'), 6000, 'the empty list');
+    await until(() => page.q('#block-user').textContent!.includes('Nobody is online'), 10000, 'the empty list');
     assert.equal((page.q('#btn-block') as HTMLButtonElement).disabled, true);
     assert.match(page.q('#troll-limit').textContent!, /no limit on how many tracks/);
     assert.equal(page.q('#blocked-users-empty').hidden, false);

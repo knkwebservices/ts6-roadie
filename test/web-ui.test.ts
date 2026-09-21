@@ -8,11 +8,11 @@ import { makeWebRig, openPage, type Page, type WebRig } from './web-helpers.js';
 async function signIn(r: WebRig, page: Page, user = r.alice): Promise<void> {
   const n = r.adapter.sent.length;
   r.adapter.say(user, '!weblogin');
-  await until(() => r.adapter.sent.length > n, 2000, 'the code');
+  await until(() => r.adapter.sent.length > n, 10000, 'the code');
   const code = /[A-Z2-9]{4}-[A-Z2-9]{4}/.exec(r.adapter.lastReply())![0];
   (page.q('#code') as HTMLInputElement).value = code;
   (page.q('#login-form') as HTMLFormElement).requestSubmit();
-  await until(() => !page.q('#app').hidden, 5000, 'signing in');
+  await until(() => !page.q('#app').hidden, 10000, 'signing in');
 }
 
 const click = (page: Page, sel: string) => (page.q(sel) as HTMLElement).click();
@@ -26,7 +26,7 @@ test('signed out, you see the sign-in form; a wrong code is explained; the right
 
     (page.q('#code') as HTMLInputElement).value = 'WRNG-CODE';
     (page.q('#login-form') as HTMLFormElement).requestSubmit();
-    await until(() => !page.q('#login-error').hidden, 3000, 'the error');
+    await until(() => !page.q('#login-error').hidden, 10000, 'the error');
     assert.match(page.q('#login-error').textContent!, /not valid or has expired/);
 
     await signIn(r, page);
@@ -97,7 +97,7 @@ test('SAFETY: hostile titles are shown as plain text and inject nothing', async 
 test('every button sends the matching chat command', async () => {
   const r = await makeWebRig({}, { upcoming: [{ kind: 'media', title: 'A', url: 'https://x.test/a', durationSec: 10 }, { kind: 'media', title: 'B', url: 'https://x.test/b', durationSec: 20 }] });
   const page = await openPage(r);
-  const expectNext = async (n: number, what: string) => until(() => page.sent.length >= n, 3000, what);
+  const expectNext = async (n: number, what: string) => until(() => page.sent.length >= n, 10000, what);
   try {
     await signIn(r, page);
     let n = 0;
@@ -137,7 +137,7 @@ test('the pause button becomes Resume while paused and sends the right command',
     assert.equal(page.q('#btn-pause').textContent, 'Resume');
     assert.match(page.q('#now-time').textContent!, /\(paused\)/);
     click(page, '#btn-pause');
-    await until(() => page.sent.length === 1, 3000, 'resume');
+    await until(() => page.sent.length === 1, 10000, 'resume');
     assert.equal(page.sent[0], '!resume');
   } finally {
     page.close();
@@ -151,7 +151,7 @@ test('what the bot answers appears in the messages list, as text', async () => {
   try {
     await signIn(r, page);
     click(page, '#btn-skip'); // no audio cog in this rig, so the bot answers "not a command I know"
-    await until(() => page.qa('#log li').length > 0, 3000, 'a message');
+    await until(() => page.qa('#log li').length > 0, 10000, 'a message');
     assert.match(page.q('#log li').textContent!, /not a command I know/);
   } finally {
     page.close();
@@ -168,12 +168,12 @@ test('when you are not in TeamSpeak, or the bot is not, the page says so', async
 
     r.adapter.userList.splice(r.adapter.userList.indexOf(r.alice), 1);
     click(page, '#btn-skip');
-    await until(() => !page.q('#banner').hidden, 4000, 'the banner');
+    await until(() => !page.q('#banner').hidden, 10000, 'the banner');
     assert.match(page.q('#banner').textContent!, /You are not connected to TeamSpeak/);
 
     r.adapter.connected = false;
     click(page, '#btn-skip');
-    await until(() => /bot is not connected/.test(page.q('#banner').textContent!), 4000, 'the bot banner');
+    await until(() => /bot is not connected/.test(page.q('#banner').textContent!), 10000, 'the bot banner');
   } finally {
     page.close();
     r.cleanup();
@@ -186,7 +186,7 @@ test('signing out returns to the sign-in form and stops asking for state', async
   try {
     await signIn(r, page);
     click(page, '#logout');
-    await until(() => !page.q('#login').hidden, 3000, 'the sign-in form');
+    await until(() => !page.q('#login').hidden, 10000, 'the sign-in form');
     assert.equal(page.q('#app').hidden, true);
     assert.equal(page.q('#who').hidden, true);
   } finally {

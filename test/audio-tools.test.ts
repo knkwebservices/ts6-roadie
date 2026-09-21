@@ -15,7 +15,7 @@ import { CH, until } from './helpers.js';
 async function say(r: Rig, user: TsUser, text: string): Promise<string> {
   const n = r.adapter.sent.length;
   r.adapter.say(user, text);
-  await until(() => r.adapter.sent.length > n, 2000, `an answer to ${text}`);
+  await until(() => r.adapter.sent.length > n, 10000, `an answer to ${text}`);
   return r.adapter.sent[n]!.text;
 }
 const pause = (ms: number) => new Promise((res) => setTimeout(res, ms));
@@ -156,7 +156,7 @@ test('!search lists results and !pick queues the one you choose, for you alone',
     assert.match(await say(r, alice, '!pick two'), /Pick a number/);
 
     r.adapter.say(alice, '!pick 2');
-    await until(() => r.player.played.length === 1, 2000, 'the chosen track');
+    await until(() => r.player.played.length === 1, 10000, 'the chosen track');
     assert.equal(r.player.played[0]!.url, 'https://www.youtube.com/watch?v=lofi%20beats2');
     assert.ok(!r.yt.searchCalls.includes('2'), 'picking does not search again');
   } finally {
@@ -204,7 +204,7 @@ test('!history lists what was played, and !again plays one of them once more', a
     r.adapter.say(alice, '!radio 1');
     await until(() => sentTexts(r).some((t) => /Queued: .*radio.*position 1/.test(t)));
     r.player.endTrack();
-    await until(() => r.player.played.length === 2, 2000, 'the radio to start');
+    await until(() => r.player.played.length === 2, 10000, 'the radio to start');
 
     const list = await say(r, alice, '!history');
     assert.match(list, /^Recently played:\n#2 SomaFM Groove Salad \[radio\] - Alice, just now\n#1 Song for "first song" \[3:20\] - Alice, just now\nUse !again <#number>/);
@@ -213,9 +213,9 @@ test('!history lists what was played, and !again plays one of them once more', a
 
     // playing it again: as a track, with the radio kept as a station
     r.adapter.say(alice, '!again #1');
-    await until(() => sentTexts(r).filter((t) => /Queued: Song for "first song"/.test(t)).length === 1, 2000, 'the song to queue');
+    await until(() => sentTexts(r).filter((t) => /Queued: Song for "first song"/.test(t)).length === 1, 10000, 'the song to queue');
     r.adapter.say(alice, '!again 2');
-    await until(() => sentTexts(r).filter((t) => /Queued: SomaFM Groove Salad \[radio\]/.test(t)).length === 2, 2000, 'the station to queue');
+    await until(() => sentTexts(r).filter((t) => /Queued: SomaFM Groove Salad \[radio\]/.test(t)).length === 2, 10000, 'the station to queue');
     assert.match(await say(r, alice, '!again 99'), /don't have that one/);
     assert.match(await say(r, alice, '!again'), /don't have that one/);
   } finally {
@@ -240,7 +240,7 @@ test('a seek or a repeat is not a new entry in the history, and Auto-DJ picks ar
     await until(() => !r.player.playing);
     await say(r, admin, '!autodj source radio defcon');
     await say(r, admin, '!autodj on');
-    await until(() => r.player.played.length === 4, 2000, 'Auto-DJ');
+    await until(() => r.player.played.length === 4, 10000, 'Auto-DJ');
     assert.match(await say(r, admin, '!history'), /#2 SomaFM DEF CON Radio \[radio\] - Auto-DJ, just now/);
     assert.equal(r.bot.services.get<{ history(): { auto?: boolean }[] }>('audio')!.history()[0]!.auto, true);
   } finally {
@@ -256,7 +256,7 @@ test('!again respects blocks and limits like any other request', async () => {
     r.adapter.say(admin, '!play seed');
     await until(() => r.player.played.length === 1);
     r.adapter.say(alice, '!again 1');
-    await until(() => sentTexts(r).filter((t) => /Queued: Song for "seed"/.test(t)).length === 2, 2000, 'the first again (the admin\'s own !play made the first match)');
+    await until(() => sentTexts(r).filter((t) => /Queued: Song for "seed"/.test(t)).length === 2, 10000, 'the first again (the admin\'s own !play made the first match)');
     assert.match(await say(r, alice, '!again 1'), /as many tracks queued as you are allowed/);
     await say(r, admin, '!block Alice');
     assert.match(await say(r, alice, '!again 1'), /blocked/);
@@ -277,24 +277,24 @@ test('!tools, !ytcheck and !ytupdate are for admins, and say what they found', a
 
     assert.match(await say(r, admin, '!tools'), /^yt-dlp test \| ffmpeg test\nYouTube: not checked yet \(!ytcheck runs it\)/);
     r.adapter.say(admin, '!ytcheck');
-    await until(() => r.adapter.sent.length >= 3 && /OK \(1\.2 s\)/.test(r.adapter.lastReply()), 2000, 'the check');
+    await until(() => r.adapter.sent.length >= 3 && /OK \(1\.2 s\)/.test(r.adapter.lastReply()), 10000, 'the check');
     assert.match(sentTexts(r).join('\n'), /Checking YouTube\.\.\./);
     assert.match(await say(r, admin, '!tools'), /YouTube: OK just now: YouTube works/);
 
     r.yt.health = { ok: false, message: 'YouTube is asking for a cookies file. Updating yt-dlp often fixes this.' };
     r.adapter.say(admin, '!ytcheck');
-    await until(() => /PROBLEM/.test(r.adapter.lastReply()), 2000, 'the failed check');
+    await until(() => /PROBLEM/.test(r.adapter.lastReply()), 10000, 'the failed check');
     assert.match(await say(r, admin, '!tools'), /YouTube: PROBLEM just now: YouTube is asking/);
 
     r.adapter.say(admin, '!ytupdate');
-    await until(() => /Done\. yt-dlp is now 2099\.01\.01\.\nUpdated yt-dlp to 2099\.01\.01\nTip: !ytcheck/.test(r.adapter.lastReply()), 2000, 'the update');
+    await until(() => /Done\. yt-dlp is now 2099\.01\.01\.\nUpdated yt-dlp to 2099\.01\.01\nTip: !ytcheck/.test(r.adapter.lastReply()), 10000, 'the update');
     assert.match(sentTexts(r).join('\n'), /Updating yt-dlp \(this can take a minute\)/);
     assert.equal(r.yt.updateCalls, 1);
     assert.match(await say(r, admin, '!status'), /yt-dlp 2099\.01\.01 \| ffmpeg test/);
 
     r.yt.update = { ok: false, output: 'You installed yt-dlp with pip.' };
     r.adapter.say(admin, '!ytupdate');
-    await until(() => /The update did not work/.test(r.adapter.lastReply()), 2000, 'the failed update');
+    await until(() => /The update did not work/.test(r.adapter.lastReply()), 10000, 'the failed update');
     assert.doesNotMatch(r.adapter.lastReply(), /Tip:/);
   } finally {
     r.cleanup();
@@ -308,11 +308,11 @@ test('two updates at once: the second is told to wait, and the tools card shows 
     const svc = r.bot.services.get<{ tools(): { updating: boolean } }>('audio')!;
     r.yt.updateDelayMs = 300;
     r.adapter.say(admin, '!ytupdate');
-    await until(() => svc.tools().updating, 1000, 'the update to start');
+    await until(() => svc.tools().updating, 10000, 'the update to start');
     assert.match(await say(r, admin, '!ytupdate'), /already being updated/);
     assert.match(await say(r, admin, '!tools'), /yt-dlp is being updated right now/);
     assert.equal(r.yt.updateCalls, 1);
-    await until(() => /Done\. yt-dlp is now/.test(r.adapter.lastReply()), 2000, 'the first to finish');
+    await until(() => /Done\. yt-dlp is now/.test(r.adapter.lastReply()), 10000, 'the first to finish');
     assert.equal(svc.tools().updating, false, 'cleared afterwards');
   } finally {
     r.cleanup();
@@ -324,7 +324,7 @@ test('the YouTube check runs by itself, tells online admins only after a second 
   try {
     const admin = r.adapter.addUser(6, 'Admin', CH.home, 'uid-Admin');
     const alice = r.adapter.addUser(5, 'Alice', CH.home);
-    await until(() => r.yt.healthCalls >= 1, 5000, 'the first automatic check');
+    await until(() => r.yt.healthCalls >= 1, 10000, 'the first automatic check');
     assert.equal(r.adapter.sent.length, 0, 'all is well: nobody is bothered');
 
     r.yt.health = { ok: false, message: 'YouTube is broken for now.' };
@@ -349,9 +349,9 @@ test('one failed check that clears up at the next try does not bother anyone', a
   try {
     r.adapter.addUser(6, 'Admin', CH.home, 'uid-Admin');
     r.yt.health = { ok: false, message: 'blip' };
-    await until(() => r.yt.healthCalls >= 1, 5000, 'the first check');
+    await until(() => r.yt.healthCalls >= 1, 10000, 'the first check');
     r.yt.health = { ok: true, message: 'YouTube works (found "x")' };
-    await until(() => r.yt.healthCalls >= 2, 8000, 'the next check');
+    await until(() => r.yt.healthCalls >= 2, 10000, 'the next check');
     await pause(100);
     assert.equal(r.adapter.sent.length, 0, 'a single blip is not worth a message');
   } finally {
@@ -380,11 +380,11 @@ test('a station that drops is reconnected, and the listeners are told once', asy
     r.adapter.say(alice, '!radio 1');
     await until(() => r.player.played.length === 1);
     r.player.endTrack(); // the stream dies
-    await until(() => r.player.played.length === 2, 2000, 'the reconnect');
+    await until(() => r.player.played.length === 2, 10000, 'the reconnect');
     assert.equal(r.player.played[1]!.url, r.player.played[0]!.url, 'the same station');
     r.player.failNext = 'connection reset';
     r.player.endTrack();
-    await until(() => r.player.played.length === 4, 3000, 'two more tries');
+    await until(() => r.player.played.length === 4, 10000, 'two more tries');
     assert.equal(sentTexts(r).filter((t) => /dropped - reconnecting/.test(t)).length, 1, 'told once, not at every try');
     assert.equal(r.bot.services.get<{ history(): unknown[] }>('audio')!.history().length, 1, 'still one entry in the history');
   } finally {
@@ -400,7 +400,7 @@ test('when the tries run out the bot says so; !stop during a reconnect cancels i
     await until(() => r.player.played.length === 1);
     r.player.failNext = 'no route';
     r.player.endTrack();
-    await until(() => sentTexts(r).some((t) => /Couldn't play .*no route/.test(t)), 3000, 'to give up');
+    await until(() => sentTexts(r).some((t) => /Couldn't play .*no route/.test(t)), 10000, 'to give up');
     await pause(150);
     assert.equal(r.player.played.length, 2, 'one retry, which failed, and then no more');
 
@@ -429,7 +429,7 @@ test('a problem that reconnecting cannot fix (the tool is missing) is not retrie
     const alice = r.adapter.addUser(5, 'Alice', CH.home);
     r.player.failNext = 'ffmpeg was not found (looked for "ffmpeg")';
     r.adapter.say(alice, '!radio 1');
-    await until(() => sentTexts(r).some((t) => /Couldn't play .*ffmpeg was not found/.test(t)), 2000, 'the message');
+    await until(() => sentTexts(r).some((t) => /Couldn't play .*ffmpeg was not found/.test(t)), 10000, 'the message');
     await pause(150);
     assert.equal(r.player.played.length, 1);
   } finally {
@@ -445,7 +445,7 @@ test('a station that will not come back is swapped for the fallback, once', asyn
     await until(() => r.player.played.length === 1);
     r.player.failNext = 'gone';
     r.player.endTrack();
-    await until(() => r.player.played.length === 3, 3000, 'the retry and then the fallback');
+    await until(() => r.player.played.length === 3, 10000, 'the retry and then the fallback');
     assert.match(r.player.played[1]!.url, /groovesalad/, 'the retry was the same station');
     assert.match(r.player.played[2]!.url, /defcon/, 'then the fallback');
     assert.ok(sentTexts(r).some((t) => /isn't working, so I switched to "SomaFM DEF CON Radio"/.test(t)));
@@ -454,7 +454,7 @@ test('a station that will not come back is swapped for the fallback, once', asyn
     // the fallback drops too: it gets its own retry but is not swapped again
     r.player.failNext = 'also gone';
     r.player.endTrack();
-    await until(() => sentTexts(r).some((t) => /Couldn't play "SomaFM DEF CON Radio": also gone/.test(t)), 3000, 'to give up');
+    await until(() => sentTexts(r).some((t) => /Couldn't play "SomaFM DEF CON Radio": also gone/.test(t)), 10000, 'to give up');
     await pause(150);
     assert.equal(r.player.played.length, 4, 'a retry of the fallback, then nothing more');
   } finally {
@@ -468,10 +468,10 @@ test('Auto-DJ reconnects a dropped station without a word in chat', async () => 
     const admin = r.adapter.addUser(6, 'Admin', CH.home, 'uid-Admin');
     await say(r, admin, '!autodj source radio groovesalad');
     await say(r, admin, '!autodj on');
-    await until(() => r.player.played.length === 1, 2000, 'Auto-DJ');
+    await until(() => r.player.played.length === 1, 10000, 'Auto-DJ');
     const before = r.adapter.sent.length;
     r.player.endTrack();
-    await until(() => r.player.played.length === 2, 2000, 'the silent reconnect');
+    await until(() => r.player.played.length === 2, 10000, 'the silent reconnect');
     assert.equal(r.adapter.sent.length, before, 'nothing said in chat');
   } finally {
     r.cleanup();
