@@ -320,15 +320,15 @@ test('two updates at once: the second is told to wait, and the tools card shows 
 });
 
 test('the YouTube check runs by itself, tells online admins only after a second failure, and says when it recovers', async () => {
-  const r = await makeRig({ audio: { healthCheckHours: 0.00004 } }); // every ~150 ms, so the test is quick
+  const r = await makeRig({ audio: { healthCheckHours: 0.0003 } }); // every ~1 s (the first check at half that), so the test is quick but not jumpy
   try {
     const admin = r.adapter.addUser(6, 'Admin', CH.home, 'uid-Admin');
     const alice = r.adapter.addUser(5, 'Alice', CH.home);
-    await until(() => r.yt.healthCalls >= 1, 2000, 'the first automatic check');
+    await until(() => r.yt.healthCalls >= 1, 5000, 'the first automatic check');
     assert.equal(r.adapter.sent.length, 0, 'all is well: nobody is bothered');
 
     r.yt.health = { ok: false, message: 'YouTube is broken for now.' };
-    await until(() => r.adapter.sent.some((s) => /looks broken: YouTube is broken for now\./.test(s.text)), 3000, 'the warning');
+    await until(() => r.adapter.sent.some((s) => /looks broken: YouTube is broken for now\./.test(s.text)), 10_000, 'the warning');
     const warned = r.adapter.sent.filter((s) => /looks broken/.test(s.text));
     assert.equal(warned.length, 1, 'told once, not at every check');
     assert.equal(warned[0]!.kind, 'private');
@@ -336,8 +336,8 @@ test('the YouTube check runs by itself, tells online admins only after a second 
     assert.ok(!r.adapter.sent.some((s) => s.to === alice.id), 'other people were not');
 
     r.yt.health = { ok: true, message: 'YouTube works (found "Me at the zoo")' };
-    await until(() => r.adapter.sent.some((s) => /working again/.test(s.text)), 3000, 'the all-clear');
-    await pause(400);
+    await until(() => r.adapter.sent.some((s) => /working again/.test(s.text)), 10_000, 'the all-clear');
+    await pause(1500);
     assert.equal(r.adapter.sent.filter((s) => /working again/.test(s.text)).length, 1);
   } finally {
     r.cleanup();
@@ -345,14 +345,14 @@ test('the YouTube check runs by itself, tells online admins only after a second 
 });
 
 test('one failed check that clears up at the next try does not bother anyone', async () => {
-  const r = await makeRig({ audio: { healthCheckHours: 0.00004 } });
+  const r = await makeRig({ audio: { healthCheckHours: 0.0003 } });
   try {
     r.adapter.addUser(6, 'Admin', CH.home, 'uid-Admin');
     r.yt.health = { ok: false, message: 'blip' };
-    await until(() => r.yt.healthCalls >= 1, 2000, 'the first check');
+    await until(() => r.yt.healthCalls >= 1, 5000, 'the first check');
     r.yt.health = { ok: true, message: 'YouTube works (found "x")' };
-    await pause(700);
-    assert.ok(r.yt.healthCalls >= 2);
+    await until(() => r.yt.healthCalls >= 2, 8000, 'the next check');
+    await pause(100);
     assert.equal(r.adapter.sent.length, 0, 'a single blip is not worth a message');
   } finally {
     r.cleanup();
