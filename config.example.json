@@ -51,6 +51,8 @@
     "maxPlaylistItems": 25,
     "maxTrackMinutes": 180,
     "announceNowPlaying": true,
+    "radioNowPlaying": true,
+    "announceRadioTitles": false,
     "ffmpegPath": "ffmpeg",
     "ytdlpPath": "yt-dlp",
     "ytdlpExtraArgs": []

@@ -37,6 +37,8 @@ export interface QueueItem {
 /** The track playing now. `id` is unique per queued track, so a change of id means a new track. */
 export interface NowPlaying extends QueueItem {
   id: number;
+  /** For a radio station: the song it is announcing right now, if it announces them. */
+  liveTitle?: string;
 }
 
 export interface AudioService {

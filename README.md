@@ -16,7 +16,7 @@ A music bot for **TeamSpeak 6** that carries the music to whoever asks for it. S
 
 | Verified on a real TS6 server | Verified by automated tests only | Not verified |
 | --- | --- | --- |
-| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure, starting automatically after a reboot, uploading the bot's avatar (`!avatar`), playlists (save, load, show, following the caller), updating a live Windows service with `deploy.mjs` | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), playlist editing, vote skip, permission rules by server group, install/update/roll-back script (against a fake service) | Redeeming a privilege key on first connect (`privilegeKey`), SoundCloud and Bandcamp playback (yt-dlp recognises their links; audio not yet tried on a real server), your server reporting users' server groups (check with `!whoami`), Linux service setup |
+| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure, starting automatically after a reboot, uploading the bot's avatar (`!avatar`), playlists (save, load, show, following the caller), updating a live Windows service with `deploy.mjs`, playlist editing, vote skip, SoundCloud and Bandcamp links, your server reporting users' server groups (`!whoami`) | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), permission rules by server group, Spotify song lookups (the page format was captured from a live page), radio song titles (against a fake station), install/update/roll-back script (against a fake service) | Redeeming a privilege key on first connect (`privilegeKey`), playing a Spotify link end to end, radio song titles on a real station, Linux service setup |
 
 The TeamSpeak protocol code is a third-party library ([`@echosixhiya/teamspeak-client`](https://github.com/EchoSixHIYA/teamspeak-js), MIT). It is young. All use of it lives in one file, `src/adapter/teamspeak.ts`, behind an interface (`src/adapter/types.ts`). If it ever breaks against a server update, that file is the only place to change.
 
@@ -106,7 +106,7 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | --- | --- |
 | `!play <link or words>` (`!p`) | Queue a YouTube or other link, or search. Playlist links queue up to 25 tracks. |
 | `!radio [number\|name\|URL]` | No argument lists stations. Or give a direct stream URL. |
-| `!queue` (`!q`), `!np` | What's playing and what's next |
+| `!queue` (`!q`), `!np` | What's playing and what's next. For a radio station, `!np` also shows the song it is playing right now. |
 | `!skip`, `!stop`, `!pause`, `!resume`, `!clear`, `!remove <n>`, `!shuffle`, `!volume [0-100]` | Playback control. You must be in the bot's channel (admins can always). |
 | `!playlist save\|load\|list\|show\|add\|remove\|move\|rename\|delete` (`!pl`) | Save what is queued as a named playlist, edit it, and load it later. See [Playlists](#playlists). |
 | `!voteskip` (`!vs`) | Vote to skip the current track. It skips once more than half of the people in the channel agree. See [Vote skip and permissions](#vote-skip-and-permissions). |
@@ -122,7 +122,9 @@ Behaviour worth knowing:
 - **Alone means leave.** If nobody else is in its channel for `follow.aloneLeaveSeconds` (default 60) it stops and goes home. After the queue empties it goes home after `follow.idleReturnSeconds` (default 120).
 - **Radio can't be paused** (a live stream has no position), so `!pause` on radio stops it. A station stays in the queue until skipped.
 - Links are checked so the bot won't fetch from localhost or private network addresses.
-- **Other sites.** SoundCloud and Bandcamp links work like YouTube ones (yt-dlp handles them), and SoundCloud sets and Bandcamp albums queue up to `audio.maxPlaylistItems` tracks. Spotify links cannot be played, because Spotify's audio is protected. The bot says so and suggests searching for the song by name.
+- **Other sites.** SoundCloud and Bandcamp links work like YouTube ones (yt-dlp handles them), and SoundCloud sets and Bandcamp albums queue up to `audio.maxPlaylistItems` tracks.
+- **Spotify song links** work too, without any Spotify account or keys: the bot reads the song and artist from the link and plays the best YouTube match, so it can occasionally pick a live version or a cover. Spotify's audio itself is protected and is never used. Spotify albums, playlists and podcasts can't be played from a link, because Spotify doesn't share their track lists, and the bot says so.
+- **Radio song titles.** While a station plays, the bot can read the song it announces, and `!np` shows it. That takes a second small connection to the station (about the same as the stream itself, a few KB/s) for as long as the radio track plays. Turn it off with `audio.radioNowPlaying`, or have each new title posted in the channel with `audio.announceRadioTitles`. Stations that don't announce titles are left alone.
 
 ## Configuration
 
@@ -139,6 +141,7 @@ Behaviour worth knowing:
 | `avatar.applyOnConnect` | Set the avatar automatically each time the bot connects, skipping the upload if the server already shows it (default `true`) |
 | `audio.codec` | `5` = Opus Music (stereo, default). Try `4` if a server only accepts voice. |
 | `audio.bitrate` | Opus bitrate in bit/s (default 64000) |
+| `audio.radioNowPlaying` / `audio.announceRadioTitles` | Read the current song from a radio station so `!np` can show it (default on), and post each new title in the channel (default off) |
 | `audio.radioStations` | Your own stations: `{ "key": { "name": "...", "url": "https://..." } }`. Replaces the built-in SomaFM list, whose URLs are not guaranteed, so check them. |
 | `audio.ytdlpExtraArgs` | Extra yt-dlp arguments, e.g. `["--js-runtimes","node"]` or `["--cookies","C:\\path\\cookies.txt"]` |
 

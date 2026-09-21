@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0
+- **Spotify song links now work**, with no Spotify account or keys: the bot reads the song and artist from the link's public preview data and plays the best YouTube match, named after the Spotify song. Albums, playlists, artists and podcasts get a clear explanation instead. Only Spotify's own pages are ever contacted, including through short-link redirects.
+- **Radio "now playing":** while a station plays, the bot reads the song titles it announces (ICY) and `!np` shows the current one. `audio.radioNowPlaying` (default on) controls the small second connection this needs, and `audio.announceRadioTitles` (default off) posts each new title in the channel.
+- The audio service's current track gained `liveTitle`.
+- README: playlist editing, vote skip, SoundCloud and Bandcamp links, and server-group reporting are now recorded as verified on a real server.
+
 ## 0.5.0
 - New `voteskip` cog: `!voteskip` (`!vs`) skips the current track once more than half of the people in the bot's channel have voted (`voteskip.threshold`).
 - New permission rules by server group or unique ID, per command (`permissions.commands`), for restricting everyday commands or delegating admin ones. `!whoami` now shows your server groups so you can find the IDs. The bot warns at start-up about rules that match no command.

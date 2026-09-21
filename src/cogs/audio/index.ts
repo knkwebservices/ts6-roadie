@@ -2,6 +2,7 @@ import type { BotApi, Cog, CogFactory, CogManifest, CommandContext } from '../..
 import { AUDIO_SERVICE, type AudioService, type QueueItem } from '../../core/services.js';
 import { Mutex } from '../../util/mutex.js';
 import { errMessage, formatDuration } from '../../util/text.js';
+import { startIcyTitles } from './icy.js';
 import { Player, type PlayerLike, type PlayerOptions } from './player.js';
 import { TrackQueue, type Track } from './queue.js';
 import { listStations, resolveMedia, resolveRadio, SourceError, toolVersion, type MediaInfo } from './sources.js';
@@ -17,12 +18,15 @@ export interface AudioDeps {
   resolveMedia: typeof resolveMedia;
   createPlayer: (opts: PlayerOptions) => PlayerLike;
   toolVersion: typeof toolVersion;
+  /** Start reading a radio station's song titles. Returns a function that stops. */
+  startRadioTitles: (url: string, onTitle: (title: string) => void, note: (message: string) => void) => () => void;
 }
 
 const defaultDeps: AudioDeps = {
   resolveMedia,
   createPlayer: (o) => new Player(o),
   toolVersion,
+  startRadioTitles: (url, onTitle, note) => startIcyTitles(url, { onTitle, onNote: note }),
 };
 
 export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog {
@@ -43,6 +47,8 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
   let aloneSince: number | undefined;
   let offLost: (() => void) | undefined;
   let unprovide: (() => void) | undefined;
+  /** The song a radio station is announcing right now (only while a radio track plays). */
+  let liveTitle: string | undefined;
   let versionCache: { at: number; text: string } | undefined;
 
   const pl = (): PlayerLike => {
@@ -187,7 +193,27 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
         const p = player;
         if (!p) break; // unloaded while the previous track was finishing
         if (cfg.announceNowPlaying) say(`Now playing: ${describe(t)} - requested by ${t.requesterName}`);
-        const r = await p.play(t);
+
+        // A radio station announces its current song inside the stream; read it on the side.
+        let stopTitles: (() => void) | undefined;
+        liveTitle = undefined;
+        if (t.kind === 'radio' && cfg.radioNowPlaying && /^https?:\/\//i.test(t.url)) {
+          stopTitles = deps.startRadioTitles(
+            t.url,
+            (title) => {
+              liveTitle = title;
+              if (cfg.announceRadioTitles) say(`Now on ${t.title}: ${title}`);
+            },
+            (note) => log.debug(`radio titles for ${t.title}: ${note}`),
+          );
+        }
+        let r;
+        try {
+          r = await p.play(t);
+        } finally {
+          stopTitles?.();
+          liveTitle = undefined;
+        }
         if (r.reason === 'error') say(`Couldn't play "${t.title}": ${r.error ?? 'unknown error'}`);
       }
     } finally {
@@ -301,7 +327,8 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
           if (!cur || !pl().playing) return ctx.reply('Nothing is playing.');
           const pos = formatDuration(pl().positionSec);
           const total = cur.kind === 'radio' ? 'live' : formatDuration(cur.durationSec);
-          return ctx.reply(`${cur.title} - ${pos} / ${total}${pl().paused ? ' (paused)' : ''} - requested by ${cur.requesterName}`);
+          const now = cur.kind === 'radio' && liveTitle ? ` - now: ${liveTitle}` : '';
+          return ctx.reply(`${cur.title} - ${pos} / ${total}${now}${pl().paused ? ' (paused)' : ''} - requested by ${cur.requesterName}`);
         },
       },
       {
@@ -447,7 +474,7 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
         snapshot() {
           const item = (t: Track): QueueItem => ({ kind: t.kind, title: t.title, url: t.url, durationSec: t.durationSec });
           return {
-            current: queue.current && player?.playing ? { ...item(queue.current), id: queue.current.id } : undefined,
+            current: queue.current && player?.playing ? { ...item(queue.current), id: queue.current.id, liveTitle } : undefined,
             upcoming: queue.upcoming.map(item),
           };
         },

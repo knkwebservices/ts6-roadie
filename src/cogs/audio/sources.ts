@@ -1,5 +1,6 @@
 import type { Config } from '../../config.js';
 import { runProcess, type Runner } from './proc.js';
+import { fetchSpotifyTrack, isSpotifyUrl, SpotifyError } from './spotify.js';
 
 export interface MediaInfo {
   /** Set when the item's kind differs from the request's default (e.g. a playlist mixing tracks and radio). */
@@ -82,15 +83,25 @@ interface YtEntry {
  * playlist URLs give up to `maxPlaylistItems`. Search text picks the top YouTube result.
  * Metadata only - the audio itself is fetched when the track actually plays.
  */
-export async function resolveMedia(input: string, cfg: Config['audio'], run: Runner = runProcess): Promise<MediaInfo[]> {
+export async function resolveMedia(input: string, cfg: Config['audio'], run: Runner = runProcess, fetchImpl: typeof fetch = fetch): Promise<MediaInfo[]> {
   const q = input.trim();
   let target: string;
+  /** Set for Spotify song links: what to call the track once YouTube has supplied the audio. */
+  let spotifyTitle: string | undefined;
   if (/^https?:\/\//i.test(q)) {
     if (!isPublicHttpUrl(q)) throw new SourceError("I can't fetch from that address.");
-    if (/(^|\.)spotify\.com$/i.test(new URL(q).hostname)) {
-      throw new SourceError("Spotify links can't be played (Spotify's audio is protected). Search for the song by name instead, e.g. !play artist - title");
+    if (isSpotifyUrl(q)) {
+      // Spotify's audio is protected: read the song and artist from the link, then find it on YouTube.
+      try {
+        const t = await fetchSpotifyTrack(q, fetchImpl);
+        spotifyTitle = `${t.artist} - ${t.title}`.slice(0, 150);
+      } catch (e) {
+        throw e instanceof SpotifyError ? new SourceError(e.message) : e;
+      }
+      target = `ytsearch1:${spotifyTitle}`;
+    } else {
+      target = q;
     }
-    target = q;
   } else {
     if (q.length > 200 || /[\r\n]/.test(q)) throw new SourceError('That search is too long.');
     target = `ytsearch1:${q}`;
@@ -146,6 +157,8 @@ export async function resolveMedia(input: string, cfg: Config['audio'], run: Run
     });
   }
   if (!out.length) throw new SourceError('I could not find anything playable for that.');
+  // Show the Spotify song's own name rather than whatever the YouTube upload happens to be called.
+  if (spotifyTitle) return [{ ...out[0]!, title: spotifyTitle }];
   return out.slice(0, cfg.maxPlaylistItems);
 }
 

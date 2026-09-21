@@ -47,7 +47,14 @@ class FakePlayer implements PlayerLike {
   }
 }
 
+interface RadioListener {
+  url: string;
+  emit(title: string): void;
+  stopped: boolean;
+}
+
 interface Rig extends Harness {
+  radio: RadioListener[];
   player: FakePlayer;
   resolveCalls: string[];
   setResolver(fn: (q: string) => Promise<MediaInfo[]>): void;
@@ -58,6 +65,7 @@ const audioEntry = resolve(import.meta.dirname, '../src/cogs/audio/index.ts');
 async function makeRig(configOver: Record<string, unknown> = {}): Promise<Rig> {
   const player = new FakePlayer();
   const resolveCalls: string[] = [];
+  const radio: RadioListener[] = [];
   let resolver: (q: string) => Promise<MediaInfo[]> = async (q) => [{ title: `Song for "${q}"`, url: `https://www.youtube.com/watch?v=${encodeURIComponent(q)}`, durationSec: 200 }];
   const deps: AudioDeps = {
     resolveMedia: async (q) => {
@@ -66,6 +74,13 @@ async function makeRig(configOver: Record<string, unknown> = {}): Promise<Rig> {
     },
     createPlayer: () => player,
     toolVersion: async () => 'test',
+    startRadioTitles: (url, onTitle) => {
+      const l: RadioListener = { url, emit: onTitle, stopped: false };
+      radio.push(l);
+      return () => {
+        l.stopped = true;
+      };
+    },
   };
   (globalThis as Record<string, unknown>).__audioDeps = deps;
   // A drop-in cog that wires the real audio cog to the fake dependencies.
@@ -78,7 +93,7 @@ async function makeRig(configOver: Record<string, unknown> = {}): Promise<Rig> {
         export default (bot) => createAudioCog(bot, globalThis.__audioDeps);`,
     },
   });
-  return { ...h, player, resolveCalls, setResolver: (fn) => (resolver = fn) };
+  return { ...h, player, radio, resolveCalls, setResolver: (fn) => (resolver = fn) };
 }
 
 const sentTexts = (r: Rig) => r.adapter.sent.map((s) => s.text);
@@ -440,6 +455,81 @@ test('vote skip through the REAL audio cog: the second vote skips to the next tr
     r.adapter.say(bob, '!voteskip');
     await until(() => r.player.played.length === 2, 2000, 'the next track after the vote passes');
     assert.match(r.player.played[1]!.url, /v=two/);
+  } finally {
+    r.cleanup();
+  }
+});
+
+// ---- radio "now playing" titles ------------------------------------------------------------------------
+
+test('radio: !np shows the song the station is announcing; nothing is posted to the channel by default', async () => {
+  const r = await makeRig();
+  try {
+    const alice = r.adapter.addUser(5, 'Alice', CH.home);
+    r.adapter.say(alice, '!radio 1');
+    await until(() => r.radio.length === 1, 2000, 'the title listener to start');
+    assert.match(r.radio[0]!.url, /somafm/, 'listens to the station that is playing');
+
+    r.adapter.say(alice, '!np');
+    await until(() => sentTexts(r).some((t) => /Groove Salad.*live/.test(t)), 2000, '!np before any title');
+    assert.ok(!sentTexts(r).some((t) => /now:/.test(t)), 'no title announced yet');
+
+    r.radio[0]!.emit('Queen - Bohemian Rhapsody');
+    r.adapter.say(alice, '!np');
+    await until(() => sentTexts(r).some((t) => /live - now: Queen - Bohemian Rhapsody/.test(t)), 2000, '!np with a title');
+    assert.ok(!sentTexts(r).some((t) => /Now on /.test(t)), 'announcements are off by default');
+
+    const svc = r.bot.services.get<import('../src/core/services.js').AudioService>('audio')!;
+    assert.equal(svc.snapshot().current!.liveTitle, 'Queen - Bohemian Rhapsody');
+  } finally {
+    r.cleanup();
+  }
+});
+
+test('radio: announceRadioTitles posts each new title in the channel', async () => {
+  const r = await makeRig({ audio: { announceRadioTitles: true } });
+  try {
+    const alice = r.adapter.addUser(5, 'Alice', CH.home);
+    r.adapter.say(alice, '!radio 1');
+    await until(() => r.radio.length === 1, 2000, 'listener');
+    r.radio[0]!.emit("a-ha - Take On Me");
+    assert.ok(r.adapter.sent.some((s) => s.kind === 'channel' && /Now on SomaFM Groove Salad: a-ha - Take On Me/.test(s.text)));
+  } finally {
+    r.cleanup();
+  }
+});
+
+test('radio: the listener stops when the track ends, and the title does not leak into the next track', async () => {
+  const r = await makeRig();
+  try {
+    const alice = r.adapter.addUser(5, 'Alice', CH.home);
+    r.adapter.say(alice, '!radio 1');
+    await until(() => r.radio.length === 1, 2000, 'listener');
+    r.adapter.say(alice, '!play one');
+    await until(() => sentTexts(r).some((t) => /Queued: .*\(position 1\)/.test(t)), 2000, 'queued behind the radio');
+    r.radio[0]!.emit('Old Song');
+
+    r.adapter.say(alice, '!skip');
+    await until(() => r.radio[0]!.stopped, 2000, 'the listener to stop');
+    await until(() => r.player.played.length === 2, 2000, 'the next track');
+
+    r.adapter.say(alice, '!np');
+    await until(() => sentTexts(r).some((t) => /Song for "one"/.test(t) && /\/ 3:20/.test(t)), 2000, '!np on the next track');
+    assert.ok(!sentTexts(r).some((t) => /Song for "one".*now:/.test(t)), 'no stale radio title');
+    assert.equal(r.radio.length, 1, 'no listener for a normal track');
+  } finally {
+    r.cleanup();
+  }
+});
+
+test('radio: radioNowPlaying=false never opens the extra connection', async () => {
+  const r = await makeRig({ audio: { radioNowPlaying: false } });
+  try {
+    const alice = r.adapter.addUser(5, 'Alice', CH.home);
+    r.adapter.say(alice, '!radio 1');
+    await until(() => r.player.playing, 2000, 'playback');
+    await new Promise((res) => setTimeout(res, 100));
+    assert.equal(r.radio.length, 0);
   } finally {
     r.cleanup();
   }

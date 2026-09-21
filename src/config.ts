@@ -81,6 +81,10 @@ export interface Config {
     maxPlaylistItems: number;
     maxTrackMinutes: number;
     announceNowPlaying: boolean;
+    /** While a radio station plays, keep a second small connection open to read the current song's title (shown by !np). */
+    radioNowPlaying: boolean;
+    /** Also post each new radio song title in the channel (default off: stations change songs every few minutes). */
+    announceRadioTitles: boolean;
     ffmpegPath: string;
     ytdlpPath: string;
     /** Extra yt-dlp arguments, e.g. ["--cookies", "C:\\tsbot\\data\\cookies.txt"]. */
@@ -117,6 +121,8 @@ export const DEFAULT_CONFIG: Config = {
     maxPlaylistItems: 25,
     maxTrackMinutes: 180,
     announceNowPlaying: true,
+    radioNowPlaying: true,
+    announceRadioTitles: false,
     ffmpegPath: 'ffmpeg',
     ytdlpPath: 'yt-dlp',
     ytdlpExtraArgs: [],
@@ -209,6 +215,8 @@ export function validateConfig(c: Config): Config {
   need(c.audio.bitrate >= 8000 && c.audio.bitrate <= 256_000, 'audio.bitrate must be 8000-256000');
   need(c.audio.codec === 4 || c.audio.codec === 5, 'audio.codec must be 4 or 5');
   need(c.audio.maxQueue >= 1, 'audio.maxQueue must be at least 1');
+  need(typeof c.audio.radioNowPlaying === 'boolean', 'audio.radioNowPlaying must be true or false');
+  need(typeof c.audio.announceRadioTitles === 'boolean', 'audio.announceRadioTitles must be true or false');
   need(Array.isArray(c.audio.ytdlpExtraArgs), 'audio.ytdlpExtraArgs must be an array');
   for (const [key, st] of Object.entries(c.audio.radioStations)) {
     need(isObject(st) && typeof st.name === 'string' && /^https?:\/\//i.test(String(st.url)), `audio.radioStations.${key} needs a name and an http(s) url`);

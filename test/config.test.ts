@@ -12,6 +12,8 @@ test('defaults fill in what config.json leaves out', () => {
   assert.equal(c.audio.codec, 5);
   assert.deepEqual(c.cogs, ['core', 'audio', 'avatar', 'playlists', 'voteskip']);
   assert.deepEqual(c.permissions, { commands: {} });
+  assert.equal(c.audio.radioNowPlaying, true);
+  assert.equal(c.audio.announceRadioTitles, false);
   assert.deepEqual(c.voteskip, { threshold: 0.5 });
   assert.deepEqual(c.playlists, { maxPlaylists: 50, maxTracks: 100 });
   assert.deepEqual(c.avatar, { file: '', applyOnConnect: true });
@@ -74,6 +76,12 @@ test('avatar settings are validated', () => {
   assert.throws(() => buildConfig({ avatar: { file: 5 } }), /avatar\.file/);
   assert.throws(() => buildConfig({ avatar: { applyOnConnect: 'yes' } }), /applyOnConnect/);
   assert.equal(buildConfig({ avatar: { file: 'mine.png', applyOnConnect: false } }).avatar.file, 'mine.png');
+});
+
+test('radio title settings are validated', () => {
+  assert.throws(() => buildConfig({ audio: { radioNowPlaying: 'yes' } }), /radioNowPlaying/);
+  assert.throws(() => buildConfig({ audio: { announceRadioTitles: 1 } }), /announceRadioTitles/);
+  assert.equal(buildConfig({ audio: { announceRadioTitles: true } }).audio.announceRadioTitles, true);
 });
 
 test('playlist limits are validated', () => {
