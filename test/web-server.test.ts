@@ -244,3 +244,89 @@ test('unloading the cog closes the port; a port already in use gives a clear err
     r.cleanup();
   }
 });
+
+const PUBLIC = 'https://ts6.example.com';
+
+test('public address: only the configured name is added, and only when it is configured', async () => {
+  const plain = await makeWebRig();
+  try {
+    assert.equal((await request(plain.port, { path: '/', host: 'ts6.example.com' })).status, 403, 'not configured: refused');
+  } finally {
+    plain.cleanup();
+  }
+  const r = await makeWebRig({ web: { publicUrl: PUBLIC } });
+  try {
+    const ok = await request(r.port, { path: '/', host: 'ts6.example.com' });
+    assert.equal(ok.status, 200);
+    assert.match(String(ok.headers['strict-transport-security']), /max-age=\d+/);
+    assert.equal((await request(r.port, { path: '/', host: 'evil.example.com' })).status, 403, 'another name is refused');
+    assert.equal((await request(r.port, { path: '/', host: 'ts6.example.com:8787' })).status, 403, 'right name, wrong port');
+    const local = await request(r.port, { path: '/' });
+    assert.equal(local.status, 200, 'this machine still works');
+    assert.equal(local.headers['strict-transport-security'], undefined, 'no https-only header on the local address');
+  } finally {
+    r.cleanup();
+  }
+});
+
+test('public address: the https origin is required, and the cookie is Secure', async () => {
+  const r = await makeWebRig({ web: { publicUrl: PUBLIC } });
+  try {
+    r.adapter.say(r.alice, '!weblogin');
+    await until(() => r.adapter.sent.length === 1, 2000, 'code');
+    const code = /[A-Z2-9]{4}-[A-Z2-9]{4}/.exec(r.adapter.lastReply())![0];
+    assert.match(r.adapter.lastReply(), /https:\/\/ts6\.example\.com/);
+    assert.doesNotMatch(r.adapter.lastReply(), /127\.0\.0\.1/, 'a visitor is not told to use the machine itself');
+
+    for (const origin of ['http://ts6.example.com', 'https://evil.test', `http://127.0.0.1:${r.port}`]) {
+      const bad = await request(r.port, { path: '/api/login', host: 'ts6.example.com', body: { code }, headers: { Origin: origin } });
+      assert.equal(bad.status, 403, origin);
+    }
+    const ok = await request(r.port, { path: '/api/login', host: 'ts6.example.com', body: { code }, headers: { Origin: PUBLIC } });
+    assert.equal(ok.status, 200);
+    const cookie = String(ok.headers['set-cookie']![0]);
+    assert.match(cookie, /HttpOnly/);
+    assert.match(cookie, /SameSite=Strict/);
+    assert.match(cookie, /; Secure/);
+
+    const state = await request(r.port, { path: '/api/state', host: 'ts6.example.com', headers: { Cookie: cookie.split(';')[0]!, Origin: PUBLIC } });
+    assert.equal(state.status, 200);
+    assert.equal(state.json.user.name, 'Alice');
+  } finally {
+    r.cleanup();
+  }
+});
+
+test('the local address keeps a cookie without Secure and its own origin rule', async () => {
+  const r = await makeWebRig({ web: { publicUrl: PUBLIC } });
+  try {
+    r.adapter.say(r.alice, '!weblogin');
+    await until(() => r.adapter.sent.length === 1, 2000, 'code');
+    const code = /[A-Z2-9]{4}-[A-Z2-9]{4}/.exec(r.adapter.lastReply())![0];
+    const wrongScheme = await request(r.port, { path: '/api/login', body: { code }, headers: { Origin: PUBLIC } });
+    assert.equal(wrongScheme.status, 403, 'the public origin does not work on the local address');
+    const ok = await request(r.port, { path: '/api/login', body: { code }, headers: { Origin: `http://127.0.0.1:${r.port}` } });
+    assert.equal(ok.status, 200);
+    assert.doesNotMatch(String(ok.headers['set-cookie']![0]), /Secure/);
+  } finally {
+    r.cleanup();
+  }
+});
+
+test('SAFETY: behind the proxy each visitor gets their own allowance for guessing codes', async () => {
+  const r = await makeWebRig({ web: { publicUrl: PUBLIC } });
+  try {
+    const guess = (ip: string, code: string) =>
+      request(r.port, { path: '/api/login', host: 'ts6.example.com', body: { code }, headers: { Origin: PUBLIC, 'X-Forwarded-For': ip } });
+    let last = 0;
+    for (let i = 0; i < 12; i++) last = (await guess('203.0.113.9', `WRNG-${1000 + i}`)).status;
+    assert.equal(last, 429, 'the guesser is locked out');
+
+    r.adapter.say(r.alice, '!weblogin');
+    await until(() => r.adapter.sent.length === 1, 2000, 'code');
+    const code = /[A-Z2-9]{4}-[A-Z2-9]{4}/.exec(r.adapter.lastReply())![0];
+    assert.equal((await guess('198.51.100.7', code)).status, 200, 'a real user from another address still signs in');
+  } finally {
+    r.cleanup();
+  }
+});

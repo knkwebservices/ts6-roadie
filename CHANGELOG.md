@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0
+- **The dashboard can now be reached over the internet, safely, through a reverse proxy.** New setting `web.publicUrl` (for example `"https://ts6.example.com"`). The bot itself still listens only on `127.0.0.1`; a web server such as Caddy on the same machine handles HTTPS and forwards requests to it. With `publicUrl` set, the dashboard also accepts requests addressed to exactly that name, with a matching `https` origin, and refuses every other name as before.
+- Over the public address the login cookie is marked `Secure` and browsers are told to keep using HTTPS (`Strict-Transport-Security`). The local address behaves exactly as in 0.7.0.
+- **Guessing login codes is now limited per visitor**, using the address the proxy reports, so a stranger guessing cannot lock out the real users. A shared allowance across everyone still stops guessing spread over many addresses.
+- `!weblogin` tells people to open the public address when one is set.
+- README: a new section shows a Caddy setup, including the case where port 80 is not free.
+
 ## 0.7.0
 - **New `web` cog: a browser dashboard** (opt-in: add `"web"` to `cogs`). Shows what is playing with a progress bar and controls for pause, skip, stop and volume, plus the queue, adding music by link or search, radio stations, saved playlists and the bot's replies. It listens only on this machine (`127.0.0.1`).
 - **Sign in with `!weblogin`:** a one-time code, sent privately, signs you in as your TeamSpeak identity. No passwords. Wrong guesses are rate-limited.

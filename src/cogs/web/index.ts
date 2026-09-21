@@ -6,7 +6,7 @@ import { startWebServer, type RunningWeb } from './server.js';
 export const manifest: CogManifest = {
   name: 'web',
   version: '1.0.0',
-  description: 'A web dashboard for the bot, reachable only from the machine it runs on',
+  description: 'A web dashboard for the bot: this machine only, or a public https address through a reverse proxy',
 };
 
 /** Offered so tests (and later stages) can find out where the dashboard is listening. */
@@ -48,10 +48,11 @@ const factory: CogFactory = (bot): Cog => {
         usage: `${p}weblogin`,
         run: async (ctx) => {
           const code = auth.issueCode({ uid: ctx.msg.senderUid, name: ctx.msg.senderName });
-          const where = running ? `http://127.0.0.1:${running.port}` : 'the dashboard address';
-          const text =
-            `Your dashboard code is ${code}. It works once and expires in ${cfg.codeMinutes} minute${cfg.codeMinutes === 1 ? '' : 's'}.\n` +
-            `Open ${where} in a browser on the machine the bot runs on, and type the code in.`;
+          const expires = `It works once and expires in ${cfg.codeMinutes} minute${cfg.codeMinutes === 1 ? '' : 's'}.`;
+          const text = cfg.publicUrl
+            ? `Your dashboard code is ${code}. ${expires}\nOpen ${cfg.publicUrl} in any browser and type the code in.`
+            : `Your dashboard code is ${code}. ${expires}\n` +
+              `Open ${running ? `http://127.0.0.1:${running.port}` : 'the dashboard address'} in a browser on the machine the bot runs on, and type the code in.`;
           // The code is a password for a few minutes: it always goes to the person privately, never to a channel.
           if (ctx.msg.scope === 'private') return ctx.reply(text);
           await bot.adapter.sendPrivate(ctx.msg.senderId, text);
@@ -62,7 +63,7 @@ const factory: CogFactory = (bot): Cog => {
 
     async onLoad() {
       running = await startWebServer(
-        { host: cfg.host, port: cfg.port },
+        { host: cfg.host, port: cfg.port, publicUrl: cfg.publicUrl },
         {
           auth,
           runCommandAs: (uid, text) => bot.runCommandAs(uid, text),
@@ -73,8 +74,8 @@ const factory: CogFactory = (bot): Cog => {
       ).catch((e: NodeJS.ErrnoException) => {
         throw new Error(e.code === 'EADDRINUSE' ? `the dashboard port ${cfg.port} is already in use (change web.port in config.json)` : `could not start the dashboard: ${e.message}`);
       });
-      unprovide = bot.services.provide<WebService>(WEB_SERVICE, { port: running.port, url: `http://127.0.0.1:${running.port}` });
-      log.info(`dashboard listening on http://${cfg.host}:${running.port} (this machine only)`);
+      unprovide = bot.services.provide<WebService>(WEB_SERVICE, { port: running.port, url: cfg.publicUrl || `http://127.0.0.1:${running.port}` });
+      log.info(`dashboard listening on http://${cfg.host}:${running.port} (this machine only)${cfg.publicUrl ? `; also accepts requests for ${cfg.publicUrl} from a reverse proxy` : ''}`);
     },
 
     async onUnload() {

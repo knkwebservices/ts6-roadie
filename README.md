@@ -136,7 +136,7 @@ Behaviour worth knowing:
 | `server.homeChannel` | Where the bot lives and returns to |
 | `server.identityLevel` | Security level of the bot's identity (default 10). Raise it if a server demands more; higher levels take exponentially longer to generate. |
 | `voteskip.threshold` | A skip needs MORE than this fraction of the listeners to vote (default `0.5`, a majority; `0` means one vote is enough) |
-| `web.host` / `web.port` / `web.codeMinutes` / `web.sessionHours` | The [web dashboard](#web-dashboard): where it listens (this machine only, port 8787 by default), how long a login code works (5 minutes) and how long a browser stays signed in (12 hours) |
+| `web.host` / `web.port` / `web.codeMinutes` / `web.sessionHours` / `web.publicUrl` | The [web dashboard](#web-dashboard): where it listens (this machine only, port 8787 by default), how long a login code works (5 minutes), how long a browser stays signed in (12 hours), and the public https address when a [reverse proxy](#putting-the-dashboard-on-the-internet) serves it (empty by default) |
 | `permissions.commands` | Per-command access rules by server group or unique ID. See [Vote skip and permissions](#vote-skip-and-permissions). |
 | `playlists.maxPlaylists` / `playlists.maxTracks` | How many playlists the server may hold (default 50) and the longest one in tracks (default 100) |
 | `avatar.file` | Image for the bot's avatar (PNG, JPEG or GIF). Empty = the bundled Roadie icon. A relative path is relative to the data folder. |
@@ -171,7 +171,7 @@ To find a group's ID, send the bot `!whoami`: it lists the server groups the ser
 
 The `web` cog is a control panel in a browser: what is playing with a progress bar, pause, skip, stop and volume, the queue with remove buttons, a box to add music by link or search, one-click radio stations, your saved playlists, and the bot's replies. It is **off by default**. To turn it on, add `"web"` to `cogs` in your config and restart the bot.
 
-**It only listens on the machine the bot runs on** (`127.0.0.1`). Nothing is exposed to the internet, and the config refuses any other address. On a VPS, open it in a browser on the VPS itself (for example over Remote Desktop) at `http://127.0.0.1:8787`.
+**It only listens on the machine the bot runs on** (`127.0.0.1`), and the config refuses any other listen address. Out of the box nothing is exposed to the internet: open it in a browser on the bot's own machine (for example over Remote Desktop) at `http://127.0.0.1:8787`. To use it from anywhere, see [Putting the dashboard on the internet](#putting-the-dashboard-on-the-internet).
 
 **Signing in.** There are no passwords. Send the bot `!weblogin` in TeamSpeak. It replies **privately** with a short one-time code such as `K7M2-9QXP`. Type it into the page. The code works once and expires after 5 minutes, and repeated wrong guesses are locked out. You are then signed in as *your TeamSpeak identity*.
 
@@ -179,7 +179,40 @@ The `web` cog is a control panel in a browser: what is playing with a progress b
 
 **Safety.** The page only accepts requests addressed to this machine by name or number and from its own origin, which stops a malicious web page from driving it through your browser. Login cookies are HttpOnly and SameSite=Strict, request sizes and command rates are limited, and song titles and other outside text are only ever shown as plain text, never as HTML.
 
-Remote access over HTTPS, and playing your own audio files, are planned but not built yet.
+#### Putting the dashboard on the internet
+
+The bot never serves the internet itself. Instead a small web server on the same machine (this example uses [Caddy](https://caddyserver.com), which gets and renews a free HTTPS certificate automatically) accepts HTTPS and forwards to the dashboard.
+
+1. Point a name at the machine, for example `ts6.example.com`, and make ports 443 (and 80, if it is free) reach it from the internet.
+2. Set the address in `config.json` and restart the bot: `"web": { "publicUrl": "https://ts6.example.com" }`.
+3. Give Caddy this `Caddyfile`:
+
+```
+ts6.example.com {
+    reverse_proxy 127.0.0.1:8787
+}
+```
+
+If something else already uses port 80 on that machine, tell Caddy to skip it and get the certificate over port 443 only:
+
+```
+{
+    auto_https disable_redirects
+}
+
+ts6.example.com {
+    tls {
+        issuer acme {
+            disable_http_challenge
+        }
+    }
+    reverse_proxy 127.0.0.1:8787
+}
+```
+
+Do not change `web.host`: the bot keeps listening on `127.0.0.1` only, so the proxy is the one way in. Sign-in works the same as before (`!weblogin`), the login cookie is `Secure`, and each visitor has their own limit on wrong guesses. Access is only ever as wide as the chat rules: you can still restrict `weblogin` to some server groups (see permissions above).
+
+Playing your own audio files is planned but not built yet.
 
 ### Playlists
 

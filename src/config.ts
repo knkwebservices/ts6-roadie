@@ -64,6 +64,11 @@ export interface Config {
     codeMinutes: number;
     /** How long a signed-in browser stays signed in, in hours. */
     sessionHours: number;
+    /**
+     * The https address people use when a reverse proxy (such as Caddy) forwards to the dashboard,
+     * for example "https://ts6.example.com". Empty (the default) means the dashboard is only for this machine.
+     */
+    publicUrl: string;
   };
   voteskip: {
     /** A skip needs MORE than this fraction of the people listening (0.5 = a majority). */
@@ -122,7 +127,7 @@ export const DEFAULT_CONFIG: Config = {
   playlists: { maxPlaylists: 50, maxTracks: 100 },
   permissions: { commands: {} },
   voteskip: { threshold: 0.5 },
-  web: { host: '127.0.0.1', port: 8787, codeMinutes: 5, sessionHours: 12 },
+  web: { host: '127.0.0.1', port: 8787, codeMinutes: 5, sessionHours: 12, publicUrl: '' },
   follow: { idleReturnSeconds: 120, aloneLeaveSeconds: 60 },
   audio: {
     defaultVolume: 50,
@@ -155,6 +160,16 @@ export const DEFAULT_CONFIG: Config = {
 export const migrations: Record<number, (c: Record<string, unknown>) => Record<string, unknown>> = {};
 
 export class ConfigError extends Error {}
+
+/** An https address with a host and nothing else: no login details, path, query or fragment. */
+function isPublicUrl(v: string): boolean {
+  try {
+    const u = new URL(v);
+    return u.protocol === 'https:' && u.hostname !== '' && u.username === '' && u.password === '' && u.pathname === '/' && u.search === '' && u.hash === '' && !v.includes('?') && !v.includes('#');
+  } catch {
+    return false;
+  }
+}
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -208,6 +223,10 @@ export function validateConfig(c: Config): Config {
   need(Number.isInteger(c.web.port) && c.web.port >= 0 && c.web.port <= 65535, 'web.port must be a whole number from 0 to 65535 (0 = pick a free port)');
   need(typeof c.web.codeMinutes === 'number' && c.web.codeMinutes > 0 && c.web.codeMinutes <= 60, 'web.codeMinutes must be more than 0 and at most 60');
   need(typeof c.web.sessionHours === 'number' && c.web.sessionHours > 0 && c.web.sessionHours <= 168, 'web.sessionHours must be more than 0 and at most 168');
+  need(
+    typeof c.web.publicUrl === 'string' && (c.web.publicUrl === '' || isPublicUrl(c.web.publicUrl)),
+    'web.publicUrl must be empty, or an https address with no path such as "https://ts6.example.com"',
+  );
   need(typeof c.voteskip.threshold === 'number' && c.voteskip.threshold >= 0 && c.voteskip.threshold < 1, 'voteskip.threshold must be a number from 0 up to (not including) 1');
   need(isObject(c.permissions.commands), 'permissions.commands must be an object of command name -> rule');
   if (isObject(c.permissions.commands)) {

@@ -93,11 +93,37 @@ function readJsonBody(req: http.IncomingMessage, res: http.ServerResponse): Prom
   });
 }
 
-export async function startWebServer(opts: { host: string; port: number }, deps: WebDeps): Promise<RunningWeb> {
+/** Addresses that mean "this machine": a reverse proxy running here reaches the dashboard from one of these. */
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+
+/**
+ * Who is really asking? Normally the connection's own address. Behind a reverse proxy on this machine every
+ * connection comes from the proxy, so the address the proxy reports in X-Forwarded-For (the last entry, the one
+ * the proxy itself added) is used instead, so each visitor gets their own login-guess allowance.
+ * The header is only believed when the connection itself comes from this machine.
+ */
+function clientKey(req: http.IncomingMessage): string {
+  const remote = req.socket.remoteAddress ?? 'unknown';
+  if (!LOOPBACK.has(remote)) return remote;
+  const forwarded = req.headers['x-forwarded-for'];
+  const last = (Array.isArray(forwarded) ? forwarded.join(',') : forwarded ?? '').split(',').pop()?.trim();
+  return last ? last.slice(0, 64) : 'local';
+}
+
+export async function startWebServer(opts: { host: string; port: number; publicUrl?: string }, deps: WebDeps): Promise<RunningWeb> {
   const commandTimes = new Map<string, number[]>();
   let boundPort = opts.port;
 
-  const allowedHosts = (): Set<string> => new Set([`127.0.0.1:${boundPort}`, `localhost:${boundPort}`, `[::1]:${boundPort}`]);
+  // When a reverse proxy serves the dashboard on a public https address, that address (and only that one) is
+  // also accepted, along with the matching https origin. Everything else is still refused.
+  const publicUrl = opts.publicUrl ? new URL(opts.publicUrl) : undefined;
+  const publicHost = publicUrl?.host.toLowerCase();
+
+  const allowedHosts = (): Set<string> => {
+    const hosts = new Set([`127.0.0.1:${boundPort}`, `localhost:${boundPort}`, `[::1]:${boundPort}`]);
+    if (publicHost) hosts.add(publicHost);
+    return hosts;
+  };
 
   const server = http.createServer((req, res) => {
     handle(req, res).catch((e) => {
@@ -114,7 +140,11 @@ export async function startWebServer(opts: { host: string; port: number }, deps:
     if (!allowedHosts().has(host)) return json(res, 403, { error: 'Not allowed.' });
     // 2. A browser tells us which site a request came from; refuse any site that is not this one.
     const origin = req.headers.origin;
-    if (origin !== undefined && origin !== `http://${host}`) return json(res, 403, { error: 'Not allowed.' });
+    const viaPublic = publicHost !== undefined && host === publicHost;
+    const expectedOrigin = viaPublic ? publicUrl!.origin : `http://${host}`;
+    if (origin !== undefined && origin !== expectedOrigin) return json(res, 403, { error: 'Not allowed.' });
+    // Tell browsers to keep using https for this address (half a year).
+    if (viaPublic) res.setHeader('Strict-Transport-Security', 'max-age=15552000');
 
     const url = new URL(req.url ?? '/', `http://${host}`);
     const method = req.method ?? 'GET';
@@ -137,19 +167,19 @@ export async function startWebServer(opts: { host: string; port: number }, deps:
     if (path === '/api/login') {
       const body = await readJsonBody(req, res);
       if (!body) return;
-      const r = deps.auth.redeem(typeof body.code === 'string' ? body.code : '');
+      const r = deps.auth.redeem(typeof body.code === 'string' ? body.code : '', clientKey(req));
       if (!r.ok) {
         return r.reason === 'locked'
           ? json(res, 429, { error: 'Too many wrong codes. Wait a few minutes, then try again.' })
           : json(res, 401, { error: 'That code is not valid or has expired. Send !weblogin again for a new one.' });
       }
       const maxAge = Math.floor(deps.sessionTtlMs / 1000);
-      return json(res, 200, { ok: true, user: { name: r.session.name } }, { 'Set-Cookie': `${COOKIE}=${r.sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}` });
+      return json(res, 200, { ok: true, user: { name: r.session.name } }, { 'Set-Cookie': `${COOKIE}=${r.sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${viaPublic ? '; Secure' : ''}` });
     }
 
     if (path === '/api/logout') {
       deps.auth.end(sid);
-      return json(res, 200, { ok: true }, { 'Set-Cookie': `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0` });
+      return json(res, 200, { ok: true }, { 'Set-Cookie': `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${viaPublic ? '; Secure' : ''}` });
     }
 
     const person = deps.auth.session(sid);

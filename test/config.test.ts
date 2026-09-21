@@ -94,3 +94,13 @@ test('config.example.json is itself valid', () => {
   const raw = JSON.parse(readFileSync(new URL('../config.example.json', import.meta.url), 'utf8'));
   assert.doesNotThrow(() => buildConfig(raw));
 });
+
+test('web.publicUrl must be empty or a bare https address', () => {
+  assert.equal(buildConfig({}).web.publicUrl, '');
+  for (const ok of ['', 'https://ts6.example.com', 'https://ts6.example.com/', 'https://ts6.example.com:8443']) {
+    assert.doesNotThrow(() => buildConfig({ web: { publicUrl: ok } }), ok);
+  }
+  for (const bad of ['http://ts6.example.com', 'ts6.example.com', 'https://', 'https://ts6.example.com/dash', 'https://user:pw@ts6.example.com', 'https://ts6.example.com/?a=1', 'https://ts6.example.com/#x', 'ftp://x.test']) {
+    assert.throws(() => buildConfig({ web: { publicUrl: bad } }), /web\.publicUrl/, bad);
+  }
+});

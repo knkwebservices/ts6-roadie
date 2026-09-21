@@ -24,8 +24,10 @@ export interface AuthOptions {
   codeTtlMs: number;
   /** How long a signed-in session lasts, in ms. */
   sessionTtlMs: number;
-  /** Wrong-code attempts allowed within the window before further attempts are refused (default 8). */
+  /** Wrong-code attempts allowed from one address within the window before that address is refused (default 8). */
   maxFailures?: number;
+  /** Wrong-code attempts allowed from everyone together within the window (default 5 times maxFailures). */
+  maxTotalFailures?: number;
   /** Length of that window in ms (default 5 minutes). */
   failureWindowMs?: number;
   /** Test seam. */
@@ -35,13 +37,16 @@ export interface AuthOptions {
 /** 32 symbols with nothing that looks like another (no 0/O, no 1/I): 8 of them is about 40 bits. */
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const MAX_SESSIONS = 100;
+/** Remember at most this many addresses' failures, so a flood of made-up addresses cannot fill memory. */
+const MAX_TRACKED_CLIENTS = 1000;
 
 export type Redeemed = { ok: true; sid: string; session: Session } | { ok: false; reason: 'invalid' | 'locked' };
 
 export class WebAuth {
   readonly #codes = new Map<string, Person & { expires: number }>();
   readonly #sessions = new Map<string, Session>();
-  #failures: number[] = [];
+  /** Recent wrong guesses, per client address. */
+  readonly #failures = new Map<string, number[]>();
   readonly #now: () => number;
 
   constructor(private readonly o: AuthOptions) {
@@ -59,18 +64,34 @@ export class WebAuth {
     return `${raw.slice(0, 4)}-${raw.slice(4)}`;
   }
 
-  /** Trade a code for a session. Wrong guesses are rate-limited so a code cannot be brute-forced. */
-  redeem(input: string): Redeemed {
+  /**
+   * Trade a code for a session. Wrong guesses are rate-limited so a code cannot be brute-forced:
+   * each client address gets its own allowance, so a stranger guessing cannot lock out the real users,
+   * and a shared allowance for everyone together still stops guessing that is spread over many addresses.
+   */
+  redeem(input: string, client = 'local'): Redeemed {
     const now = this.#now();
     this.#sweep();
     const window = this.o.failureWindowMs ?? 5 * 60_000;
-    this.#failures = this.#failures.filter((t) => now - t < window);
-    if (this.#failures.length >= (this.o.maxFailures ?? 8)) return { ok: false, reason: 'locked' };
+    const perClient = this.o.maxFailures ?? 8;
+    const total = this.o.maxTotalFailures ?? perClient * 5;
+    const mine = (this.#failures.get(client) ?? []).filter((t) => now - t < window);
+    let all = 0;
+    for (const [k, list] of this.#failures) {
+      const recent = list.filter((t) => now - t < window);
+      if (recent.length === 0) this.#failures.delete(k);
+      else {
+        this.#failures.set(k, recent);
+        all += recent.length;
+      }
+    }
+    if (mine.length >= perClient || all >= total) return { ok: false, reason: 'locked' };
 
     const code = String(input).toUpperCase().replace(/[\s-]/g, '');
     const hit = this.#codes.get(code);
     if (!hit || hit.expires <= now) {
-      this.#failures.push(now);
+      if (!this.#failures.has(client) && this.#failures.size >= MAX_TRACKED_CLIENTS) this.#failures.delete(this.#failures.keys().next().value!);
+      this.#failures.set(client, [...mine, now]);
       return { ok: false, reason: 'invalid' };
     }
     this.#codes.delete(code); // single use

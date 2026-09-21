@@ -93,3 +93,25 @@ test('session ids are long and unpredictable', () => {
   }
   assert.equal(ids.size, 50);
 });
+
+test('SAFETY: one visitor guessing wrongly does not lock out everyone else', () => {
+  const { auth } = make({ maxFailures: 3, failureWindowMs: 60_000 });
+  const code = auth.issueCode(alice);
+  for (let i = 0; i < 3; i++) assert.deepEqual(auth.redeem('WRONG-COD', '203.0.113.9'), { ok: false, reason: 'invalid' });
+  assert.deepEqual(auth.redeem('WRONG-COD', '203.0.113.9'), { ok: false, reason: 'locked' }, 'the guesser is locked out');
+  assert.equal(auth.redeem(code, '198.51.100.7').ok, true, 'a different visitor can still sign in');
+});
+
+test('SAFETY: guessing spread over many addresses is stopped by the shared allowance', () => {
+  const { auth } = make({ maxFailures: 3, maxTotalFailures: 6, failureWindowMs: 60_000 });
+  const code = auth.issueCode(alice);
+  for (let i = 0; i < 6; i++) assert.deepEqual(auth.redeem('WRONG-COD', `192.0.2.${i}`), { ok: false, reason: 'invalid' });
+  assert.deepEqual(auth.redeem(code, '198.51.100.7'), { ok: false, reason: 'locked' }, 'everyone waits, even a brand-new address');
+});
+
+test('a flood of made-up addresses cannot make the bot remember them all', () => {
+  const { auth } = make({ maxFailures: 3, maxTotalFailures: 1_000_000, failureWindowMs: 60_000 });
+  for (let i = 0; i < 3000; i++) auth.redeem('WRONG-COD', `10.0.${i >> 8}.${i & 255}`);
+  const code = auth.issueCode(alice);
+  assert.equal(auth.redeem(code, '198.51.100.7').ok, true, 'still working after the flood');
+});
