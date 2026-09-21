@@ -2,12 +2,29 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Log } from '../../logger.js';
 import { errMessage } from '../../util/text.js';
+import type { AdminApi, LogLevel } from './admin.js';
 import type { Person, WebAuth } from './auth.js';
 import { APP_CSS, APP_HTML, APP_JS } from './ui.js';
 
 const COOKIE = 'roadie_sid';
 const MAX_BODY_BYTES = 4096;
+/** A saved list of radio stations is longer than an ordinary request. */
+const MAX_STATIONS_BODY_BYTES = 32 * 1024;
 const COMMAND_LIMIT = { count: 10, windowMs: 5_000 };
+/** Reading the Admin tab (health, log lines) is cheap, so it gets a more generous allowance. */
+const READ_LIMIT = { count: 30, windowMs: 5_000 };
+
+/** Each path answers one kind of request. */
+const ROUTES: Record<string, 'GET' | 'POST'> = {
+  '/api/login': 'POST',
+  '/api/logout': 'POST',
+  '/api/state': 'GET',
+  '/api/command': 'POST',
+  '/api/admin/overview': 'GET',
+  '/api/admin/logs': 'GET',
+  '/api/admin/stations': 'GET',
+  '/api/admin/stations/save': 'POST',
+};
 
 export interface WebDeps {
   auth: WebAuth;
@@ -15,6 +32,10 @@ export interface WebDeps {
   runCommandAs(uid: string, text: string): Promise<{ ok: boolean; replies: string[] }>;
   /** Everything the page shows, for this person. Must be JSON-serialisable. */
   state(person: Person): unknown;
+  /** Is this person a bot admin? Only they may use the /api/admin/ routes. */
+  isAdmin(uid: string): boolean;
+  /** What the Admin tab shows and changes. */
+  admin?: AdminApi;
   sessionTtlMs: number;
   log: Log;
 }
@@ -52,7 +73,7 @@ function readCookie(req: http.IncomingMessage, name: string): string | undefined
  * Read a small JSON object body. On a problem it sends the error reply itself and resolves to undefined.
  * An oversized request gets its 413 reply first, and only then is the connection closed.
  */
-function readJsonBody(req: http.IncomingMessage, res: http.ServerResponse): Promise<Record<string, unknown> | undefined> {
+function readJsonBody(req: http.IncomingMessage, res: http.ServerResponse, maxBytes = MAX_BODY_BYTES): Promise<Record<string, unknown> | undefined> {
   return new Promise((resolve) => {
     let settled = false;
     const fail = (status: number, message: string, close = false): void => {
@@ -63,14 +84,14 @@ function readJsonBody(req: http.IncomingMessage, res: http.ServerResponse): Prom
       resolve(undefined);
     };
     const declared = Number(req.headers['content-length']);
-    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return fail(413, 'That request is too large.', true);
+    if (Number.isFinite(declared) && declared > maxBytes) return fail(413, 'That request is too large.', true);
 
     const chunks: Buffer[] = [];
     let size = 0;
     req.on('data', (c: Buffer) => {
       if (settled) return;
       size += c.length;
-      if (size > MAX_BODY_BYTES) return fail(413, 'That request is too large.', true);
+      if (size > maxBytes) return fail(413, 'That request is too large.', true);
       chunks.push(c);
     });
     req.on('end', () => {
@@ -112,6 +133,16 @@ function clientKey(req: http.IncomingMessage): string {
 
 export async function startWebServer(opts: { host: string; port: number; publicUrl?: string }, deps: WebDeps): Promise<RunningWeb> {
   const commandTimes = new Map<string, number[]>();
+  const readTimes = new Map<string, number[]>();
+  /** True if this session may go ahead; false if it has used up its allowance for the moment. */
+  const allow = (times: Map<string, number[]>, limit: { count: number; windowMs: number }, sid: string): boolean => {
+    const now = Date.now();
+    const recent = (times.get(sid) ?? []).filter((t) => now - t < limit.windowMs);
+    if (recent.length >= limit.count) return false;
+    recent.push(now);
+    times.set(sid, recent);
+    return true;
+  };
   let boundPort = opts.port;
 
   // When a reverse proxy serves the dashboard on a public https address, that address (and only that one) is
@@ -154,11 +185,9 @@ export async function startWebServer(opts: { host: string; port: number; publicU
     if (method === 'GET' && path === '/app.js') return send(res, 200, APP_JS, 'text/javascript; charset=utf-8');
     if (method === 'GET' && path === '/app.css') return send(res, 200, APP_CSS, 'text/css; charset=utf-8');
 
-    const api = ['/api/login', '/api/logout', '/api/state', '/api/command'];
-    if (!api.includes(path)) return json(res, 404, { error: 'Not found.' });
-
-    const wantsPost = path !== '/api/state';
-    if ((method === 'POST') !== wantsPost) return json(res, 405, { error: 'Method not allowed.' }, { Allow: wantsPost ? 'POST' : 'GET' });
+    const wanted = Object.hasOwn(ROUTES, path) ? ROUTES[path] : undefined;
+    if (!wanted) return json(res, 404, { error: 'Not found.' });
+    if (method !== wanted) return json(res, 405, { error: 'Method not allowed.' }, { Allow: wanted });
     // Requiring JSON means another site cannot send us a form post: a cross-site JSON request needs permission first.
     if (method === 'POST' && !/^application\/json\b/i.test(req.headers['content-type'] ?? '')) return json(res, 415, { error: 'Send JSON.' });
 
@@ -187,12 +216,30 @@ export async function startWebServer(opts: { host: string; port: number; publicU
 
     if (path === '/api/state') return json(res, 200, deps.state(person));
 
+    // ---- the Admin tab: bot admins only, whatever the login rule lets in ----
+    if (path.startsWith('/api/admin/')) {
+      const admin = deps.admin;
+      if (!admin || !deps.isAdmin(person.uid)) return json(res, 403, { error: 'Bot admins only.' });
+      if (method === 'GET') {
+        if (!allow(readTimes, READ_LIMIT, sid!)) return json(res, 429, { error: 'Slow down a little.' });
+        if (path === '/api/admin/overview') return json(res, 200, admin.overview());
+        if (path === '/api/admin/stations') return json(res, 200, admin.stations());
+        // /api/admin/logs
+        const asked = Number(url.searchParams.get('lines'));
+        const level = url.searchParams.get('level');
+        const chosen: LogLevel = level === 'warn' || level === 'error' ? level : 'all';
+        return json(res, 200, admin.logs({ lines: Number.isFinite(asked) && asked > 0 ? asked : 200, level: chosen }));
+      }
+      // /api/admin/stations/save
+      if (!allow(commandTimes, COMMAND_LIMIT, sid!)) return json(res, 429, { error: 'Slow down a little.' });
+      const body = await readJsonBody(req, res, MAX_STATIONS_BODY_BYTES);
+      if (!body) return;
+      const saved = admin.saveStations(body);
+      return json(res, saved.ok ? 200 : 400, saved);
+    }
+
     // /api/command
-    const now = Date.now();
-    const recent = (commandTimes.get(sid!) ?? []).filter((t) => now - t < COMMAND_LIMIT.windowMs);
-    if (recent.length >= COMMAND_LIMIT.count) return json(res, 429, { error: 'Slow down a little.' });
-    recent.push(now);
-    commandTimes.set(sid!, recent);
+    if (!allow(commandTimes, COMMAND_LIMIT, sid!)) return json(res, 429, { error: 'Slow down a little.' });
 
     const body = await readJsonBody(req, res);
     if (!body) return;

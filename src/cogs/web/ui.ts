@@ -38,6 +38,12 @@ export const APP_HTML = `<!doctype html>
 <main id="app" hidden>
   <p id="banner" class="banner" role="status" hidden></p>
 
+  <nav id="tabs" class="tabs" aria-label="Sections" hidden>
+    <button id="tab-btn-player" type="button" class="tab active" aria-selected="true">Player</button>
+    <button id="tab-btn-admin" type="button" class="tab" aria-selected="false">Admin</button>
+  </nav>
+
+  <div id="tab-player" class="tab-body">
   <section class="card" id="now">
     <h2>Now playing</h2>
     <p id="now-title" class="title">Nothing is playing.</p>
@@ -85,6 +91,61 @@ export const APP_HTML = `<!doctype html>
     <h2>Messages</h2>
     <ul id="log" class="log"></ul>
   </section>
+  </div>
+
+  <div id="tab-admin" class="tab-body" hidden>
+    <section class="card">
+      <h2>Bot</h2>
+      <p id="admin-facts" class="sub">Loading...</p>
+      <div class="row wrap">
+        <button id="btn-status" type="button" class="quiet">Full status</button>
+        <button id="btn-restart" type="button" class="danger">Restart bot</button>
+      </div>
+      <pre id="admin-output" class="output" hidden></pre>
+    </section>
+
+    <section class="card">
+      <h2>Cogs</h2>
+      <ul id="cogs"></ul>
+    </section>
+
+    <section class="card">
+      <h2>Who is online</h2>
+      <p class="sub">The bot heads back to its home channel by itself after a couple of idle minutes.</p>
+      <ul id="channels"></ul>
+      <div class="row">
+        <button id="btn-home" type="button" class="quiet">Stop and go home</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Radio stations</h2>
+      <p id="stations-count" class="sub"></p>
+      <ul id="station-editor"></ul>
+      <p id="stations-msg" class="sub" role="status"></p>
+      <div class="row wrap">
+        <button id="btn-st-add" type="button" class="quiet">Add a station</button>
+        <button id="btn-st-save" type="button" disabled>Save stations</button>
+        <button id="btn-st-discard" type="button" class="quiet" disabled>Discard changes</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Log</h2>
+      <div class="row wrap">
+        <label for="log-level">Show</label>
+        <select id="log-level" aria-label="Which log lines to show">
+          <option value="all">Everything</option>
+          <option value="warn">Warnings and errors</option>
+          <option value="error">Errors only</option>
+        </select>
+        <button id="btn-log-refresh" type="button" class="quiet">Refresh</button>
+        <label><input id="log-auto" type="checkbox"> Auto-refresh</label>
+      </div>
+      <pre id="logs" class="logs">Loading...</pre>
+      <p id="logs-note" class="sub"></p>
+    </section>
+  </div>
 </main>
 <script src="/app.js"></script>
 </body>
@@ -129,6 +190,24 @@ ol, ul { margin:0; padding:0; list-style:none; }
 #queue .t, #playlists .t { flex:1; min-width:0; overflow-wrap:anywhere; }
 .log { max-height:200px; overflow:auto; font-size:14px; color:var(--sub); }
 .log li { padding:3px 0; }
+.tabs { display:flex; gap:8px; }
+.tab { background:transparent; }
+.tab.active { border-color:var(--orange); color:var(--orange); }
+.tab-body { display:grid; gap:14px; }
+select { font:inherit; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:#0d1528; color:var(--text); }
+pre.output, pre.logs { margin:12px 0 0; padding:10px 12px; border-radius:8px; border:1px solid var(--line); background:#0d1528; color:var(--text); font:12.5px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space:pre-wrap; overflow-wrap:anywhere; overflow:auto; }
+pre.output { max-height:220px; }
+pre.logs { max-height:380px; }
+#cogs li, #channels li { display:flex; align-items:center; gap:10px; padding:8px 0; border-top:1px solid var(--line); }
+#cogs li:first-child, #channels li:first-child { border-top:0; }
+#cogs .t, #channels .t { flex:1; min-width:0; overflow-wrap:anywhere; }
+#station-editor li { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 0; border-top:1px solid var(--line); }
+#station-editor li:first-child { border-top:0; }
+#station-editor .n { color:var(--sub); width:2em; text-align:right; flex:none; }
+#station-editor .st-name { flex:1 1 160px; }
+#station-editor .st-url { flex:3 1 260px; }
+button:disabled { opacity:.5; cursor:default; }
+button:disabled:hover { border-color:var(--line); }
 [hidden] { display:none !important; }
 @media (max-width:520px) { .row { flex-wrap:wrap; } }
 `;
@@ -140,6 +219,12 @@ export const APP_JS = String.raw`
   var state = null;
   var fetchedAt = 0;
   var pollTimer = null;
+  var tab = 'player';
+  var adminTimer = null;
+  var overview = null;
+  var draft = null;        // the radio station list being edited
+  var draftDirty = false;
+  var maxStations = 30;
 
   // ---- tiny DOM helpers. Text is only ever set with textContent / text nodes. ----
   function el(tag, props, kids) {
@@ -181,12 +266,25 @@ export const APP_JS = String.raw`
     while (log.children.length > 12) log.removeChild(log.lastChild);
   }
 
+  function showOutput(lines) {
+    if (tab !== 'admin') return;
+    var o = $('admin-output');
+    o.hidden = false;
+    o.textContent = lines.join('\n');
+  }
+
   function run(text) {
     return api('/api/command', { text: text }).then(function (r) {
       if (r.status === 401) return showLogin();
       if (r.status === 429) return say(['Slow down a little.']);
-      say((r.body && r.body.replies && r.body.replies.length) ? r.body.replies : (r.body && r.body.error ? [r.body.error] : ['Done.']));
-      return refresh();
+      var lines = (r.body && r.body.replies && r.body.replies.length) ? r.body.replies : (r.body && r.body.error ? [r.body.error] : ['Done.']);
+      say(lines);
+      showOutput(lines);
+      return Promise.all([refresh(), tab === 'admin' ? refreshAdmin(false) : null]);
+    }).catch(function () {
+      var lines = ['Lost contact with the bot. If it is restarting, sign in again in a few seconds.'];
+      say(lines);
+      showOutput(lines);
     });
   }
 
@@ -196,12 +294,17 @@ export const APP_JS = String.raw`
     var err = $('login-error');
     err.hidden = !message; err.textContent = message || '';
     if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+    if (adminTimer) { clearTimeout(adminTimer); adminTimer = null; }
+    overview = null; draft = null; draftDirty = false;
+    applyTab('player');
   }
 
   function render() {
     var s = state, a = s.audio || {};
     $('login').hidden = true; $('app').hidden = false; $('who').hidden = false;
     $('who-name').textContent = 'Signed in as ' + s.user.name;
+    $('tabs').hidden = !s.admin;
+    if (!s.admin && tab === 'admin') setTab('player');
 
     var banner = $('banner'), msg = '';
     if (!s.bot.connected) msg = 'The bot is not connected to TeamSpeak right now.';
@@ -282,6 +385,170 @@ export const APP_JS = String.raw`
     });
   }
 
+  // ---- Admin tab: only bot admins see it, and the server refuses everyone else ----
+  function applyTab(name) {
+    tab = name;
+    $('tab-player').hidden = name !== 'player';
+    $('tab-admin').hidden = name !== 'admin';
+    $('tab-btn-player').className = 'tab' + (name === 'player' ? ' active' : '');
+    $('tab-btn-admin').className = 'tab' + (name === 'admin' ? ' active' : '');
+    $('tab-btn-player').setAttribute('aria-selected', String(name === 'player'));
+    $('tab-btn-admin').setAttribute('aria-selected', String(name === 'admin'));
+  }
+
+  function setTab(name) {
+    applyTab(name);
+    if (adminTimer) { clearTimeout(adminTimer); adminTimer = null; }
+    if (name === 'admin') {
+      if (!draftDirty) loadStations();
+      refreshAdmin(true);
+    }
+  }
+
+  function upText(sec) {
+    var d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
+    return d > 0 ? d + 'd ' + h + 'h' : (h > 0 ? h + 'h ' + m + 'm' : m + 'm');
+  }
+
+  function renderAdmin() {
+    var o = overview, prefix = state.prefix;
+    var here = null;
+    o.channels.forEach(function (c) { if (c.id === o.botChannelId) here = c; });
+    $('admin-facts').textContent = 'Bot ' + o.version + '  |  TS library ' + o.tsLib + '  |  Node ' + o.node + '  |  Up ' + upText(o.uptimeSec) + '  |  ' + (o.connected ? 'Connected' : 'NOT connected') + '  |  Channel: ' + (here ? here.name : '?');
+
+    var cogs = $('cogs'); clear(cogs);
+    o.cogs.forEach(function (c) {
+      var kids = [el('span', { class: 't', text: (c.loaded ? '[on]  ' : '[off]  ') + c.name + ' ' + c.version + ' (' + c.source + ') - ' + c.description })];
+      if (c.name === 'core' || c.name === 'web') {
+        kids.push(el('span', { class: 'sub', text: 'needed by this page' }));
+      } else if (/^[A-Za-z0-9_-]+$/.test(c.name)) {
+        if (c.loaded) {
+          kids.push(el('button', { type: 'button', class: 'quiet', 'aria-label': 'Reload ' + c.name, text: 'Reload', onclick: function () { run(prefix + 'reload ' + c.name); } }));
+          kids.push(el('button', { type: 'button', class: 'quiet danger', 'aria-label': 'Unload ' + c.name, text: 'Unload', onclick: function () {
+            if (confirm('Unload ' + c.name + '? Whatever it does stops until it is loaded again.')) run(prefix + 'unload ' + c.name);
+          } }));
+        } else {
+          kids.push(el('button', { type: 'button', class: 'quiet', 'aria-label': 'Load ' + c.name, text: 'Load', onclick: function () { run(prefix + 'load ' + c.name); } }));
+        }
+      }
+      cogs.appendChild(el('li', { class: 'cog-item' }, kids));
+    });
+
+    var byParent = {}, known = {};
+    o.channels.forEach(function (c) { known[c.id] = true; (byParent[c.parentId] = byParent[c.parentId] || []).push(c); });
+    var list = $('channels'); clear(list);
+    function add(c, depth) {
+      var isHere = c.id === o.botChannelId;
+      var go = el('button', { type: 'button', class: 'quiet', 'aria-label': 'Bring the bot to ' + c.name, text: isHere ? 'Bot is here' : 'Bring bot here', onclick: function () {
+        if (/^[0-9]+$/.test(c.id)) run(prefix + 'goto #' + c.id);
+      } });
+      go.disabled = isHere;
+      var who = c.users.map(function (u) { return u.name; }).join(', ');
+      var li = el('li', { class: 'channel' }, [
+        el('span', { class: 't' }, [el('strong', { text: c.name }), el('span', { class: 'sub', text: '  -  ' + (who || 'empty') })]),
+        go
+      ]);
+      li.style.paddingLeft = (depth * 18) + 'px';
+      list.appendChild(li);
+      if (depth < 8) (byParent[c.id] || []).forEach(function (k) { add(k, depth + 1); });
+    }
+    o.channels.forEach(function (c) { if (c.parentId === '0' || !known[c.parentId]) add(c, 0); });
+  }
+
+  function refreshLogs() {
+    var pre = $('logs');
+    var atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 24;
+    return api('/api/admin/logs?lines=300&level=' + encodeURIComponent($('log-level').value)).then(function (r) {
+      if (r.status === 401) return showLogin();
+      if (r.status !== 200) { pre.textContent = (r.body && r.body.error) || 'Could not load the log.'; return; }
+      pre.textContent = r.body.lines.length ? r.body.lines.join('\n') : 'Nothing to show.';
+      $('logs-note').textContent = (r.body.file || 'No log file yet') + (r.body.more ? '  -  older lines are not shown' : '');
+      if (atBottom) pre.scrollTop = pre.scrollHeight;
+    });
+  }
+
+  function refreshAdmin(withLogs) {
+    if (adminTimer) { clearTimeout(adminTimer); adminTimer = null; }
+    if (tab !== 'admin') return Promise.resolve();
+    var jobs = [api('/api/admin/overview').then(function (r) {
+      if (r.status === 401) return showLogin();
+      if (r.status !== 200) { $('admin-facts').textContent = (r.body && r.body.error) || 'Could not load.'; return; }
+      overview = r.body;
+      renderAdmin();
+    })];
+    if (withLogs || $('log-auto').checked) jobs.push(refreshLogs());
+    return Promise.all(jobs).catch(function () {}).then(function () {
+      if (tab === 'admin') adminTimer = setTimeout(function () { refreshAdmin(false); }, document.hidden ? 15000 : 5000);
+    });
+  }
+
+  // radio stations: edit a copy here, and only "Save" sends it to the bot
+  function setDirty(d) {
+    draftDirty = d;
+    $('btn-st-save').disabled = !d;
+    $('btn-st-discard').disabled = !d;
+  }
+
+  function copyStations(list) {
+    return list.map(function (x) { return { key: x.key, name: x.name, url: x.url }; });
+  }
+
+  function renderStationEditor() {
+    var list = $('station-editor'); clear(list);
+    var rows = draft || [];
+    $('stations-count').textContent = rows.length + ' of ' + maxStations + ' stations. The numbers are what people type after !radio.';
+    rows.forEach(function (row, i) {
+      var name = el('input', { type: 'text', class: 'st-name', maxlength: '60', placeholder: 'Station name', 'aria-label': 'Name of station ' + (i + 1), value: row.name });
+      var url = el('input', { type: 'text', class: 'st-url', maxlength: '500', placeholder: 'https://... stream address', 'aria-label': 'Address of station ' + (i + 1), value: row.url });
+      name.addEventListener('input', function () { row.name = name.value; setDirty(true); });
+      url.addEventListener('input', function () { row.url = url.value; setDirty(true); });
+      var up = el('button', { type: 'button', class: 'quiet', 'aria-label': 'Move station ' + (i + 1) + ' up', text: 'Up', onclick: function () {
+        var t = draft[i - 1]; draft[i - 1] = draft[i]; draft[i] = t; setDirty(true); renderStationEditor();
+      } });
+      var down = el('button', { type: 'button', class: 'quiet', 'aria-label': 'Move station ' + (i + 1) + ' down', text: 'Down', onclick: function () {
+        var t = draft[i + 1]; draft[i + 1] = draft[i]; draft[i] = t; setDirty(true); renderStationEditor();
+      } });
+      up.disabled = i === 0;
+      down.disabled = i === rows.length - 1;
+      var del = el('button', { type: 'button', class: 'quiet danger', 'aria-label': 'Remove station ' + (i + 1), text: 'Remove', onclick: function () {
+        draft.splice(i, 1); setDirty(true); renderStationEditor();
+      } });
+      list.appendChild(el('li', { class: 'station-row' }, [el('span', { class: 'n', text: String(i + 1) }), name, url, up, down, del]));
+    });
+  }
+
+  function loadStations() {
+    return api('/api/admin/stations').then(function (r) {
+      if (r.status === 401) return showLogin();
+      if (r.status !== 200) return;
+      draft = copyStations(r.body.stations);
+      maxStations = r.body.max || 30;
+      setDirty(false);
+      $('stations-msg').textContent = '';
+      renderStationEditor();
+    }).catch(function () {});
+  }
+
+  function saveStations() {
+    var msg = $('stations-msg');
+    msg.className = 'sub'; msg.textContent = 'Saving...';
+    return api('/api/admin/stations/save', { stations: copyStations(draft) }).then(function (r) {
+      if (r.status === 401) return showLogin();
+      if (r.status === 200) {
+        draft = copyStations(r.body.stations);
+        setDirty(false);
+        renderStationEditor();
+        msg.textContent = 'Saved. The new list works right away.';
+        return refresh();
+      }
+      msg.className = 'sub error';
+      msg.textContent = (r.body && r.body.error) || 'That did not save.';
+    }).catch(function () {
+      msg.className = 'sub error';
+      msg.textContent = 'Lost contact with the bot. Try again.';
+    });
+  }
+
   // ---- wiring ----
   $('login-form').addEventListener('submit', function (e) {
     e.preventDefault();
@@ -305,6 +572,26 @@ export const APP_JS = String.raw`
     input.value = '';
     run(state.prefix + 'play ' + v);
   });
+  $('tab-btn-player').addEventListener('click', function () { setTab('player'); });
+  $('tab-btn-admin').addEventListener('click', function () { setTab('admin'); });
+  $('btn-status').addEventListener('click', function () { run(state.prefix + 'status'); });
+  $('btn-restart').addEventListener('click', function () {
+    if (confirm('Restart the bot? Music stops for a few seconds, and everyone has to sign in to this page again.')) run(state.prefix + 'restart');
+  });
+  $('btn-home').addEventListener('click', function () { run(state.prefix + 'leave'); });
+  $('btn-log-refresh').addEventListener('click', function () { refreshLogs(); });
+  $('log-level').addEventListener('change', function () { refreshLogs(); });
+  $('btn-st-add').addEventListener('click', function () {
+    if (!draft) return;
+    if (draft.length >= maxStations) { $('stations-msg').className = 'sub error'; $('stations-msg').textContent = 'That is the most stations there can be (' + maxStations + ').'; return; }
+    draft.push({ key: '', name: '', url: '' });
+    setDirty(true);
+    renderStationEditor();
+    var names = $('station-editor').querySelectorAll('.st-name');
+    if (names.length) names[names.length - 1].focus();
+  });
+  $('btn-st-save').addEventListener('click', function () { if (draft) saveStations(); });
+  $('btn-st-discard').addEventListener('click', function () { loadStations(); });
   setInterval(tick, 1000);
   refresh();
 })();

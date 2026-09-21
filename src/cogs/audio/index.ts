@@ -440,6 +440,29 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
         },
       },
       {
+        name: 'goto',
+        description: 'Send me to a channel, by name or as #id (bot admins only)',
+        usage: `${p}goto <channel name>`,
+        perm: 'admin',
+        run: async (ctx) => {
+          const want = ctx.rest.trim();
+          if (!want) return ctx.reply(`Usage: ${p}goto <channel name>`);
+          const byId = /^#(\d{1,18})$/.exec(want);
+          const target = byId ? adapter.channels().find((c) => c.id === BigInt(byId[1]!)) : adapter.findChannel(want);
+          if (!target) return ctx.reply(`I can't find a channel called \"${want}\".`);
+          if (target.id === adapter.selfChannelId()) return ctx.reply("I'm already there.");
+          const home = adapter.findChannel(bot.config.server.homeChannel);
+          try {
+            await adapter.moveSelf(target.id, home && home.id === target.id ? bot.config.server.homeChannelPassword : undefined);
+            cancelIdle();
+            scheduleIdle();
+            return ctx.reply(`Moved to \"${target.name}\".`);
+          } catch (e) {
+            return ctx.reply(`I couldn't move there (${errMessage(e)}).`);
+          }
+        },
+      },
+      {
         name: 'leave',
         aliases: ['home'],
         description: 'Stop playing and go back to the home channel',

@@ -104,3 +104,13 @@ test('web.publicUrl must be empty or a bare https address', () => {
     assert.throws(() => buildConfig({ web: { publicUrl: bad } }), /web\.publicUrl/, bad);
   }
 });
+
+test('each loaded config is its own copy: changing one never leaks into the defaults or another config', () => {
+  const a = buildConfig({});
+  const b = buildConfig({});
+  a.audio.radioStations = { only: { name: 'Only', url: 'https://radio.example.com/only' } };
+  a.web.port = 1234;
+  assert.equal(Object.keys(b.audio.radioStations).length, 5);
+  assert.equal(b.web.port, 8787);
+  assert.equal(Object.keys(buildConfig({}).audio.radioStations).length, 5);
+});

@@ -534,3 +534,65 @@ test('radio: radioNowPlaying=false never opens the extra connection', async () =
     r.cleanup();
   }
 });
+
+test('!goto is for admins: it sends the bot to a channel by name or #id', async () => {
+  const r = await makeRig({ follow: { idleReturnSeconds: 30, aloneLeaveSeconds: 60 } });
+  try {
+    const admin = r.adapter.addUser(6, 'Admin', CH.home, 'uid-Admin');
+    const alice = r.adapter.addUser(5, 'Alice', CH.home);
+
+    r.adapter.say(alice, '!goto Gaming A');
+    await until(() => sentTexts(r).some((t) => /admins only/i.test(t)), 2000, 'the refusal');
+    assert.deepEqual(r.adapter.moves, [], 'a non-admin cannot move the bot');
+
+    r.adapter.say(admin, '!goto gaming a');
+    await until(() => r.adapter.chan === CH.a, 2000, 'the move by name');
+    assert.match(r.adapter.lastReply(), /Moved to "Gaming A"/);
+
+    r.adapter.say(admin, `!goto #${CH.b}`);
+    await until(() => r.adapter.chan === CH.b, 2000, 'the move by id');
+    assert.match(r.adapter.lastReply(), /Moved to "Gaming B"/);
+
+    const said = () => r.adapter.sent.length;
+    let n = said();
+    r.adapter.say(admin, '!goto Gaming B');
+    await until(() => said() > n, 2000, 'the reply');
+    assert.match(r.adapter.lastReply(), /already there/);
+
+    n = said();
+    r.adapter.say(admin, '!goto Nowhere Land');
+    await until(() => said() > n, 2000, 'the reply');
+    assert.match(r.adapter.lastReply(), /can't find a channel/);
+
+    n = said();
+    r.adapter.say(admin, '!goto #999999');
+    await until(() => said() > n, 2000, 'the reply');
+    assert.match(r.adapter.lastReply(), /can't find a channel/);
+
+    n = said();
+    r.adapter.say(admin, '!goto');
+    await until(() => said() > n, 2000, 'the reply');
+    assert.match(r.adapter.lastReply(), /Usage/);
+
+    r.adapter.failMove = new Error('no permission');
+    n = said();
+    r.adapter.say(admin, '!goto Staff Room');
+    await until(() => said() > n, 2000, 'the reply');
+    assert.match(r.adapter.lastReply(), /couldn't move there \(no permission\)/);
+    assert.equal(r.adapter.chan, CH.b, 'a failed move leaves the bot where it was');
+  } finally {
+    r.cleanup();
+  }
+});
+
+test('after !goto the bot still heads home once it has been idle', async () => {
+  const r = await makeRig(); // the test config sends an idle bot home after 50 ms
+  try {
+    const admin = r.adapter.addUser(6, 'Admin', CH.home, 'uid-Admin');
+    r.adapter.say(admin, '!goto Gaming A');
+    await until(() => r.adapter.moves.includes(CH.a), 2000, 'the move');
+    await until(() => r.adapter.chan === CH.home, 2000, 'the return home');
+  } finally {
+    r.cleanup();
+  }
+});

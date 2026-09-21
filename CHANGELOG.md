@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0
+- **The dashboard has an Admin tab, for bot admins only.** Non-admins never see it, and the server refuses its requests even if a group rule lets someone sign in.
+  - **Bot:** version, uptime, connection and channel at a glance, a Full status button, and a Restart button that asks first.
+  - **Cogs:** which cogs are on, with Reload, Unload and Load buttons. `core` and `web` are left alone because the page needs them.
+  - **Who is online:** every channel with the people in it, and a Bring bot here button on each. The bot still heads home by itself after it has been idle.
+  - **Radio stations:** add, rename, reorder and remove stations in the browser and save. The change works at once with no restart, the old file is kept as `config.json.web.bak`, and a list the bot would not accept is refused with the reason. Stations must be public web addresses; add ones on your own network by editing `config.json`.
+  - **Log:** the most recent lines of today's log, filterable to warnings or errors, with optional auto-refresh. Login codes, passwords and tokens are hidden.
+- New admin command `!goto <channel name>` (or `!goto #<id>`) sends the bot to a channel. The dashboard's Bring bot here button uses it.
+- Every button still just runs a chat command as you, except the two things that have no command (saving stations and reading the log), which check that you are a bot admin.
+- Fixed: loaded configs shared one object for the built-in defaults, so changing one could change another. Each now has its own copy.
+- Development: the page and browser test helpers moved to `test/web-helpers.ts`.
+
 ## 0.8.0
 - **The dashboard can now be reached over the internet, safely, through a reverse proxy.** New setting `web.publicUrl` (for example `"https://ts6.example.com"`). The bot itself still listens only on `127.0.0.1`; a web server such as Caddy on the same machine handles HTTPS and forwards requests to it. With `publicUrl` set, the dashboard also accepts requests addressed to exactly that name, with a matching `https` origin, and refuses every other name as before.
 - Over the public address the login cookie is marked `Secure` and browsers are told to keep using HTTPS (`Strict-Transport-Security`). The local address behaves exactly as in 0.7.0.

@@ -263,7 +263,8 @@ export function validateConfig(c: Config): Config {
 export function buildConfig(raw: unknown): Config {
   if (!isObject(raw)) throw new ConfigError('config.json must contain a JSON object');
   const migrated = migrateConfig(raw);
-  return validateConfig(merge(DEFAULT_CONFIG, migrated));
+  // A copy, so changing one loaded config (the dashboard edits the radio stations) can never alter the defaults or another config.
+  return validateConfig(merge(structuredClone(DEFAULT_CONFIG), migrated));
 }
 
 export function loadConfig(dataDir: string): Config {

@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { JSDOM } from 'jsdom';
 import type { AudioService, AudioState, PlaylistsService } from '../src/core/services.js';
 import type { WebService } from '../src/cogs/web/index.js';
 import type { TsUser } from '../src/adapter/types.js';
@@ -93,4 +94,58 @@ export async function makeWebRig(configOver: Record<string, unknown> = {}, audio
     request(web.port, { path, body, headers: { Cookie: cookie, ...extra } });
 
   return { ...h, port: web.port, audio, alice, admin, login, as };
+}
+
+/** A fetch() for the page under test: real HTTP to the real server, with a browser-like cookie jar and Origin header. */
+function browserFetch(port: number) {
+  let cookie = '';
+  return async (url: string, opts: { method?: string; headers?: Record<string, string>; body?: string } = {}) => {
+    const headers: Record<string, string> = { ...(opts.headers ?? {}) };
+    if (cookie) headers['Cookie'] = cookie;
+    if (opts.method === 'POST') headers['Origin'] = `http://127.0.0.1:${port}`;
+    const res = await fetch(new URL(url, `http://127.0.0.1:${port}/`), { method: opts.method, headers, body: opts.body });
+    for (const c of res.headers.getSetCookie()) cookie = /Max-Age=0/i.test(c) ? '' : c.split(';')[0]!;
+    return res;
+  };
+}
+
+export interface Page {
+  win: JSDOM['window'];
+  doc: Document;
+  /** The chat commands the page has asked the bot to run, in order. */
+  sent: string[];
+  q<T extends Element = HTMLElement>(sel: string): T;
+  qa(sel: string): Element[];
+  close(): void;
+}
+
+export async function openPage(r: WebRig): Promise<Page> {
+  const sent: string[] = [];
+  const original = r.bot.runCommandAs.bind(r.bot);
+  r.bot.runCommandAs = async (uid: string, text: string) => {
+    sent.push(text);
+    return original(uid, text);
+  };
+  const dom = await JSDOM.fromURL(`http://127.0.0.1:${r.port}/`, {
+    runScripts: 'dangerously',
+    resources: 'usable',
+    pretendToBeVisual: true,
+    beforeParse(w) {
+      (w as unknown as { fetch: unknown }).fetch = browserFetch(r.port);
+    },
+  });
+  const doc = dom.window.document;
+  await until(() => !doc.getElementById('login')!.hidden || !doc.getElementById('app')!.hidden, 5000, 'the page to start');
+  return {
+    win: dom.window,
+    doc,
+    sent,
+    q: <T extends Element = HTMLElement>(sel: string) => {
+      const e = doc.querySelector<T>(sel);
+      if (!e) throw new Error(`no element for ${sel}`);
+      return e;
+    },
+    qa: (sel) => [...doc.querySelectorAll(sel)],
+    close: () => dom.window.close(),
+  };
 }

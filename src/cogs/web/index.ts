@@ -1,11 +1,12 @@
 import { AUDIO_SERVICE, PLAYLISTS_SERVICE, type AudioService, type PlaylistsService } from '../../core/services.js';
 import type { Cog, CogFactory, CogManifest } from '../../core/types.js';
+import { createAdminApi } from './admin.js';
 import { WebAuth, type Person } from './auth.js';
 import { startWebServer, type RunningWeb } from './server.js';
 
 export const manifest: CogManifest = {
   name: 'web',
-  version: '1.0.0',
+  version: '1.1.0',
   description: 'A web dashboard for the bot: this machine only, or a public https address through a reverse proxy',
 };
 
@@ -31,6 +32,7 @@ const factory: CogFactory = (bot): Cog => {
     const me = bot.adapter.users().find((u) => u.uid === person.uid);
     return {
       user: { name: person.name },
+      admin: bot.isAdmin(person.uid),
       prefix: p,
       connected: !!me,
       bot: { connected: bot.adapter.connected, channel: channelName(bot.adapter.selfChannelId()) },
@@ -68,6 +70,8 @@ const factory: CogFactory = (bot): Cog => {
           auth,
           runCommandAs: (uid, text) => bot.runCommandAs(uid, text),
           state: stateFor,
+          isAdmin: (uid) => bot.isAdmin(uid),
+          admin: createAdminApi(bot),
           sessionTtlMs: cfg.sessionHours * 3_600_000,
           log,
         },

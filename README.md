@@ -113,6 +113,7 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!weblogin` | Get a one-time code (sent privately) to sign in to the [web dashboard](#web-dashboard) |
 | `!summon` (`!join`) | Bring the bot to your channel |
 | `!leave` (`!home`) | Stop and go back to the home channel |
+| `!goto <channel name>` | Admins only. Send the bot to a channel by name, or as `#<id>`. |
 | `!help [command]`, `!ping`, `!whoami` | Everyone |
 | `!status`, `!cogs`, `!load`, `!unload`, `!reload`, `!restart` | Admins only |
 | `!avatar [clear]` | Admins only. Uploads the bot's avatar (the Roadie icon by default), or removes it. See [Avatar](#avatar). |
@@ -176,6 +177,16 @@ The `web` cog is a control panel in a browser: what is playing with a progress b
 **Signing in.** There are no passwords. Send the bot `!weblogin` in TeamSpeak. It replies **privately** with a short one-time code such as `K7M2-9QXP`. Type it into the page. The code works once and expires after 5 minutes, and repeated wrong guesses are locked out. You are then signed in as *your TeamSpeak identity*.
 
 **Permissions.** Every button simply sends the matching chat command as you (`!skip`, `!volume 30`, `!playlist load ...`), so the dashboard follows exactly the same rules as chat: the admin list, your group rules in `permissions.commands`, cooldowns, and "follow the caller". A button can never do something the command would not allow. You must be connected to TeamSpeak for the buttons to work. To limit who may sign in at all, put a rule on `weblogin` (see permissions above).
+
+**The Admin tab.** Bot admins (the unique IDs in `admins`) get a second tab. Everyone else never sees it, and the server refuses its requests even if a group rule lets them sign in.
+
+- **Bot:** version, uptime, connection and current channel, a **Full status** button, and **Restart bot** (it asks first, and everyone has to sign in again afterwards, because sign-ins are kept in memory).
+- **Cogs:** which are on, with **Reload**, **Unload** and **Load**. `core` and `web` have no buttons because the page needs them.
+- **Who is online:** every channel with the people in it and a **Bring bot here** button, which runs `!goto`. The bot still returns home by itself once it has been idle (see `follow.idleReturnSeconds`).
+- **Radio stations:** add, rename, reorder and remove stations, then **Save stations**. The new list works straight away, no restart needed, and the previous `config.json` is kept as `config.json.web.bak`. A list the bot would not accept at start-up is refused with the reason, and nothing is changed. Addresses must be public `http(s)` addresses without login details; to use a station on your own network, edit `config.json` by hand.
+- **Log:** the latest lines of today's log (topped up from yesterday's when it is short), filterable to warnings or errors, with optional auto-refresh. Login codes, passwords and tokens are hidden before anything leaves the bot.
+
+Nearly every button just runs a chat command as you, so it follows the same rules. Saving stations and reading the log have no chat command, so the server checks you are a bot admin for those.
 
 **Safety.** The page only accepts requests addressed to this machine by name or number and from its own origin, which stops a malicious web page from driving it through your browser. Login cookies are HttpOnly and SameSite=Strict, request sizes and command rates are limited, and song titles and other outside text are only ever shown as plain text, never as HTML.
 
