@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { AUDIO_SERVICE, type AudioService, type QueueItem } from '../../core/services.js';
+import { AUDIO_SERVICE, PLAYLISTS_SERVICE, type AudioService, type PlaylistsService, type QueueItem } from '../../core/services.js';
 import type { Cog, CogFactory, CogManifest, CommandContext } from '../../core/types.js';
 import { Mutex } from '../../util/mutex.js';
 import { errMessage, formatDuration } from '../../util/text.js';
@@ -191,6 +191,8 @@ const factory: CogFactory = (bot): Cog => {
     });
   }
 
+  let unprovide: (() => void) | undefined;
+
   return {
     commands: [
       {
@@ -245,6 +247,16 @@ const factory: CogFactory = (bot): Cog => {
         },
       },
     ],
+
+    onLoad() {
+      unprovide = bot.services.provide<PlaylistsService>(PLAYLISTS_SERVICE, {
+        list: () => store.list().map((pl) => ({ name: pl.name, tracks: pl.tracks.length, owner: pl.ownerName })),
+      });
+    },
+
+    onUnload() {
+      unprovide?.();
+    },
 
     status: () => `${store.size} saved playlist${store.size === 1 ? '' : 's'}`,
   };

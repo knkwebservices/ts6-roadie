@@ -72,6 +72,8 @@ export interface BotApi {
   readonly services: ServiceRegistry;
   readonly startedAt: number;
   isAdmin(uid: string): boolean;
+  /** Run a chat command as a connected user, with exactly the permissions they would have in chat. */
+  runCommandAs(uid: string, text: string): Promise<{ ok: boolean; replies: string[] }>;
   /** All commands from all loaded cogs (for !help). */
   listCommands(): { cog: string; def: CommandDef }[];
   listCogs(): { manifest: CogManifest; loaded: boolean; source: 'builtin' | 'custom' }[];

@@ -34,6 +34,13 @@
     "threshold": 0.5
   },
 
+  "web": {
+    "host": "127.0.0.1",
+    "port": 8787,
+    "codeMinutes": 5,
+    "sessionHours": 12
+  },
+
   "permissions": {
     "commands": {}
   },

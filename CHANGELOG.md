@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0
+- **New `web` cog: a browser dashboard** (opt-in: add `"web"` to `cogs`). Shows what is playing with a progress bar and controls for pause, skip, stop and volume, plus the queue, adding music by link or search, radio stations, saved playlists and the bot's replies. It listens only on this machine (`127.0.0.1`).
+- **Sign in with `!weblogin`:** a one-time code, sent privately, signs you in as your TeamSpeak identity. No passwords. Wrong guesses are rate-limited.
+- **Same rules as chat, by construction:** every button runs the matching chat command as you via the new `bot.runCommandAs`, so admin lists, group rules and cooldowns all apply.
+- Protections: Host and Origin checks, JSON-only requests, size and rate limits, strict security headers, and outside text shown only as plain text.
+- New `web` settings (`web.host`, `web.port`, `web.codeMinutes`, `web.sessionHours`); the audio cog now offers a read-only `state()`, and the playlists cog offers a `playlists` service.
+- Spotify: a featured artist who is already credited is no longer repeated in the title ("Post Malone, Morgan Wallen - I Had Some Help").
+- Development: jsdom is a new dev-only dependency, used to test the real page.
+- README: Spotify song links, the Spotify album message and radio song titles are recorded as verified on a real server.
+
 ## 0.6.0
 - **Spotify song links now work**, with no Spotify account or keys: the bot reads the song and artist from the link's public preview data and plays the best YouTube match, named after the Spotify song. Albums, playlists, artists and podcasts get a clear explanation instead. Only Spotify's own pages are ever contacted, including through short-link redirects.
 - **Radio "now playing":** while a station plays, the bot reads the song titles it announces (ICY) and `!np` shows the current one. `audio.radioNowPlaying` (default on) controls the small second connection this needs, and `audio.announceRadioTitles` (default off) posts each new title in the channel.

@@ -55,6 +55,16 @@ export interface Config {
      */
     commands: Record<string, CommandRule>;
   };
+  web: {
+    /** Where the dashboard listens. For now only this machine (127.0.0.1, ::1 or localhost) is allowed. */
+    host: string;
+    /** 0 picks a free port. */
+    port: number;
+    /** How long a !weblogin code works, in minutes. */
+    codeMinutes: number;
+    /** How long a signed-in browser stays signed in, in hours. */
+    sessionHours: number;
+  };
   voteskip: {
     /** A skip needs MORE than this fraction of the people listening (0.5 = a majority). */
     threshold: number;
@@ -112,6 +122,7 @@ export const DEFAULT_CONFIG: Config = {
   playlists: { maxPlaylists: 50, maxTracks: 100 },
   permissions: { commands: {} },
   voteskip: { threshold: 0.5 },
+  web: { host: '127.0.0.1', port: 8787, codeMinutes: 5, sessionHours: 12 },
   follow: { idleReturnSeconds: 120, aloneLeaveSeconds: 60 },
   audio: {
     defaultVolume: 50,
@@ -193,6 +204,10 @@ export function validateConfig(c: Config): Config {
   need(Array.isArray(c.admins) && c.admins.every((a) => typeof a === 'string'), 'admins must be an array of unique-ID strings');
   need(Array.isArray(c.cogs) && c.cogs.includes('core'), 'cogs must include "core"');
   need(['debug', 'info', 'warn', 'error'].includes(c.logLevel), 'logLevel must be debug, info, warn or error');
+  need(['127.0.0.1', '::1', 'localhost'].includes(c.web.host), 'web.host must be 127.0.0.1, ::1 or localhost (the dashboard is local-only for now)');
+  need(Number.isInteger(c.web.port) && c.web.port >= 0 && c.web.port <= 65535, 'web.port must be a whole number from 0 to 65535 (0 = pick a free port)');
+  need(typeof c.web.codeMinutes === 'number' && c.web.codeMinutes > 0 && c.web.codeMinutes <= 60, 'web.codeMinutes must be more than 0 and at most 60');
+  need(typeof c.web.sessionHours === 'number' && c.web.sessionHours > 0 && c.web.sessionHours <= 168, 'web.sessionHours must be more than 0 and at most 168');
   need(typeof c.voteskip.threshold === 'number' && c.voteskip.threshold >= 0 && c.voteskip.threshold < 1, 'voteskip.threshold must be a number from 0 up to (not including) 1');
   need(isObject(c.permissions.commands), 'permissions.commands must be an object of command name -> rule');
   if (isObject(c.permissions.commands)) {

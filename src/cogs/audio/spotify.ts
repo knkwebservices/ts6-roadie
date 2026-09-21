@@ -79,11 +79,24 @@ export interface SpotifyTrack {
   artist: string;
 }
 
+/**
+ * "Song (Feat. X)" reads as a repeat when X is already credited as an artist ("A, X - Song (Feat. X)").
+ * Drop that bracketed ending, but only when every featured name really is in the artist list, so a
+ * genuine part of a title (or a feature that is NOT credited) is never lost.
+ */
+export function tidyTrack(t: SpotifyTrack): SpotifyTrack {
+  const m = /^(.*?)\s*[(\[]\s*(?:feat\.?|ft\.?|featuring|with)\s+([^)\]]+?)\s*[)\]]\s*$/i.exec(t.title);
+  if (!m || !m[1]?.trim()) return t;
+  const credited = t.artist.toLowerCase();
+  const featured = m[2]!.split(/\s*(?:,|&|\band\b)\s*/i).map((n) => n.trim().toLowerCase()).filter(Boolean);
+  return featured.length && featured.every((n) => credited.includes(n)) ? { ...t, title: m[1].trim() } : t;
+}
+
 /** Title from og:title; artist is the first "·"-separated part of og:description ("Artist · Album · Song · Year"). */
 export function trackFromTags(tags: Record<string, string>): SpotifyTrack | undefined {
   const title = tags['og:title']?.trim();
   const artist = tags['og:description']?.split('·')[0]?.trim();
-  return title && artist ? { title, artist } : undefined;
+  return title && artist ? tidyTrack({ title, artist }) : undefined;
 }
 
 async function readLimited(res: Response, max: number): Promise<string> {

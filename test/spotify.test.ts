@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { buildConfig } from '../src/config.js';
 import type { Runner } from '../src/cogs/audio/proc.js';
 import { resolveMedia, SourceError } from '../src/cogs/audio/sources.js';
-import { fetchSpotifyTrack, isSpotifyUrl, parseOgTags, SpotifyError, spotifyKind, trackFromTags } from '../src/cogs/audio/spotify.js';
+import { fetchSpotifyTrack, isSpotifyUrl, parseOgTags, SpotifyError, spotifyKind, tidyTrack, trackFromTags } from '../src/cogs/audio/spotify.js';
 
 const audio = buildConfig({}).audio;
 const TRACK = 'https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC?si=abc123';
@@ -45,6 +45,23 @@ test('trackFromTags: artist is the first part of the description; missing pieces
   assert.deepEqual(trackFromTags({ 'og:title': 'Song', 'og:description': 'Artist One, Artist Two · Album · Song · 2020' }), { title: 'Song', artist: 'Artist One, Artist Two' });
   assert.equal(trackFromTags({ 'og:title': 'Song' }), undefined);
   assert.equal(trackFromTags({ 'og:description': 'Artist · Song' }), undefined);
+});
+
+test('a featured artist who is already credited is not repeated in the title', () => {
+  // the exact case seen on the live server
+  assert.deepEqual(trackFromTags({ 'og:title': 'I Had Some Help (Feat. Morgan Wallen)', 'og:description': 'Post Malone, Morgan Wallen · I Had Some Help (Feat. Morgan Wallen) · Song · 2024' }), {
+    title: 'I Had Some Help',
+    artist: 'Post Malone, Morgan Wallen',
+  });
+  assert.equal(tidyTrack({ title: 'Song [ft. A & B]', artist: 'Main, A, B' }).title, 'Song');
+  assert.equal(tidyTrack({ title: 'Song (featuring A and B)', artist: 'Main, A, B' }).title, 'Song');
+  assert.equal(tidyTrack({ title: 'Song (with A)', artist: 'Main, A' }).title, 'Song');
+  // never lose real information
+  assert.equal(tidyTrack({ title: 'Song (Feat. Guest)', artist: 'Main' }).title, 'Song (Feat. Guest)', 'a feature that is not credited stays');
+  assert.equal(tidyTrack({ title: 'Song (Feat. A & Z)', artist: 'Main, A' }).title, 'Song (Feat. A & Z)', 'all featured names must be credited');
+  assert.equal(tidyTrack({ title: 'Dancing With Myself', artist: 'Billy Idol' }).title, 'Dancing With Myself');
+  assert.equal(tidyTrack({ title: 'Song (Remastered 2011)', artist: 'Main' }).title, 'Song (Remastered 2011)');
+  assert.equal(tidyTrack({ title: '(Feat. A)', artist: 'Main, A' }).title, '(Feat. A)', 'never reduce a title to nothing');
 });
 
 test('spotifyKind and isSpotifyUrl', () => {

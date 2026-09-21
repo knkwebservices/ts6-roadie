@@ -170,27 +170,50 @@ export class Bot implements BotApi {
   // ---- command dispatch --------------------------------------------------------------------
 
   async #onMessage(m: IncomingMessage): Promise<void> {
+    await this.#dispatch(
+      m,
+      async (text) => {
+        try {
+          await this.adapter.reply(m, text);
+        } catch (e) {
+          this.log.warn(`reply failed: ${errMessage(e)}`);
+        }
+      },
+    );
+  }
+
+  /**
+   * Run a chat command as a user who is connected to TeamSpeak right now. The dashboard uses this, so
+   * every button goes through exactly the same permission rules, cooldown and behaviour as typing the
+   * command in chat: it can never do more than the person could do there.
+   */
+  async runCommandAs(uid: string, text: string): Promise<{ ok: boolean; replies: string[] }> {
+    const user = this.adapter.users().find((u) => u.uid === uid);
+    if (!user) return { ok: false, replies: ['You need to be connected to TeamSpeak to use the dashboard.'] };
+    const replies: string[] = [];
+    const msg: IncomingMessage = { scope: 'private', senderId: user.id, senderUid: user.uid, senderName: user.name, senderGroups: user.groups, text };
+    const status = await this.#dispatch(msg, async (t) => void replies.push(t));
+    if (status === 'notcommand') replies.push(`Commands start with "${this.config.prefix}".`);
+    if (status === 'unknown') replies.push(`That is not a command I know. ${this.config.prefix}help lists them in chat.`);
+    if (status === 'cooldown') replies.push('One moment, then try again.');
+    return { ok: status === 'ran', replies };
+  }
+
+  async #dispatch(m: IncomingMessage, reply: (text: string) => Promise<void>): Promise<'ran' | 'denied' | 'unknown' | 'cooldown' | 'notcommand'> {
     const parsed = parseCommandLine(stripBbcode(m.text), this.config.prefix);
-    if (!parsed) return;
+    if (!parsed) return 'notcommand';
     const def = this.cogs.find(parsed.name);
-    if (!def) return; // stay quiet on unknown commands - other bots share these channels
+    if (!def) return 'unknown'; // in chat we stay quiet on unknown commands - other bots share these channels
 
     const now = Date.now();
     const last = this.#lastCommandAt.get(m.senderUid) ?? 0;
-    if (now - last < this.#cooldownMs) return;
+    if (now - last < this.#cooldownMs) return 'cooldown';
     this.#lastCommandAt.set(m.senderUid, now);
     if (this.#lastCommandAt.size > 500) {
       for (const [k, t] of this.#lastCommandAt) if (now - t > 60_000) this.#lastCommandAt.delete(k);
     }
 
     const isAdmin = this.isAdmin(m.senderUid);
-    const reply = async (text: string) => {
-      try {
-        await this.adapter.reply(m, text);
-      } catch (e) {
-        this.log.warn(`reply failed: ${errMessage(e)}`);
-      }
-    };
 
     // Access: a configured rule replaces the command's built-in default. Bot admins always pass.
     const rule = this.#ruleFor(def);
@@ -199,7 +222,7 @@ export class Bot implements BotApi {
       : def.perm !== 'admin' || isAdmin;
     if (!allowed) {
       await reply(rule ? `You don't have permission to use ${this.config.prefix}${def.name}.` : 'That command is for bot admins only.');
-      return;
+      return 'denied';
     }
 
     const ctx: CommandContext = {
@@ -223,5 +246,6 @@ export class Bot implements BotApi {
       this.log.error(`command "${parsed.name}" from ${m.senderName} failed`, e);
       await reply('Something went wrong running that command. The details are in the bot log.');
     }
+    return 'ran';
   }
 }

@@ -41,7 +41,26 @@ export interface NowPlaying extends QueueItem {
   liveTitle?: string;
 }
 
+/** Everything the dashboard needs to draw the player. */
+export interface AudioState {
+  playing: boolean;
+  paused: boolean;
+  /** 0-100 */
+  volume: number;
+  positionSec: number;
+  current?: NowPlaying;
+  upcoming: QueueItem[];
+}
+
+export const PLAYLISTS_SERVICE = 'playlists';
+
+export interface PlaylistsService {
+  list(): { name: string; tracks: number; owner: string }[];
+}
+
 export interface AudioService {
+  /** A read-only picture of the player for display. */
+  state(): AudioState;
   /** What is playing and queued right now. `current` is set only while a track is actually playing. */
   snapshot(): { current?: NowPlaying; upcoming: QueueItem[] };
   /**

@@ -16,7 +16,7 @@ A music bot for **TeamSpeak 6** that carries the music to whoever asks for it. S
 
 | Verified on a real TS6 server | Verified by automated tests only | Not verified |
 | --- | --- | --- |
-| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure, starting automatically after a reboot, uploading the bot's avatar (`!avatar`), playlists (save, load, show, following the caller), updating a live Windows service with `deploy.mjs`, playlist editing, vote skip, SoundCloud and Bandcamp links, your server reporting users' server groups (`!whoami`) | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), permission rules by server group, Spotify song lookups (the page format was captured from a live page), radio song titles (against a fake station), install/update/roll-back script (against a fake service) | Redeeming a privilege key on first connect (`privilegeKey`), playing a Spotify link end to end, radio song titles on a real station, Linux service setup |
+| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure, starting automatically after a reboot, uploading the bot's avatar (`!avatar`), playlists (save, load, show, following the caller), updating a live Windows service with `deploy.mjs`, playlist editing, vote skip, SoundCloud and Bandcamp links, your server reporting users' server groups (`!whoami`), Spotify song links (and the album message), radio song titles from a real station | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), permission rules by server group, the web dashboard (real HTTP requests plus the real page driven in a simulated browser), install/update/roll-back script (against a fake service) | Redeeming a privilege key on first connect (`privilegeKey`), the web dashboard in a real browser, Linux service setup |
 
 The TeamSpeak protocol code is a third-party library ([`@echosixhiya/teamspeak-client`](https://github.com/EchoSixHIYA/teamspeak-js), MIT). It is young. All use of it lives in one file, `src/adapter/teamspeak.ts`, behind an interface (`src/adapter/types.ts`). If it ever breaks against a server update, that file is the only place to change.
 
@@ -110,6 +110,7 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!skip`, `!stop`, `!pause`, `!resume`, `!clear`, `!remove <n>`, `!shuffle`, `!volume [0-100]` | Playback control. You must be in the bot's channel (admins can always). |
 | `!playlist save\|load\|list\|show\|add\|remove\|move\|rename\|delete` (`!pl`) | Save what is queued as a named playlist, edit it, and load it later. See [Playlists](#playlists). |
 | `!voteskip` (`!vs`) | Vote to skip the current track. It skips once more than half of the people in the channel agree. See [Vote skip and permissions](#vote-skip-and-permissions). |
+| `!weblogin` | Get a one-time code (sent privately) to sign in to the [web dashboard](#web-dashboard) |
 | `!summon` (`!join`) | Bring the bot to your channel |
 | `!leave` (`!home`) | Stop and go back to the home channel |
 | `!help [command]`, `!ping`, `!whoami` | Everyone |
@@ -135,6 +136,7 @@ Behaviour worth knowing:
 | `server.homeChannel` | Where the bot lives and returns to |
 | `server.identityLevel` | Security level of the bot's identity (default 10). Raise it if a server demands more; higher levels take exponentially longer to generate. |
 | `voteskip.threshold` | A skip needs MORE than this fraction of the listeners to vote (default `0.5`, a majority; `0` means one vote is enough) |
+| `web.host` / `web.port` / `web.codeMinutes` / `web.sessionHours` | The [web dashboard](#web-dashboard): where it listens (this machine only, port 8787 by default), how long a login code works (5 minutes) and how long a browser stays signed in (12 hours) |
 | `permissions.commands` | Per-command access rules by server group or unique ID. See [Vote skip and permissions](#vote-skip-and-permissions). |
 | `playlists.maxPlaylists` / `playlists.maxTracks` | How many playlists the server may hold (default 50) and the longest one in tracks (default 100) |
 | `avatar.file` | Image for the bot's avatar (PNG, JPEG or GIF). Empty = the bundled Roadie icon. A relative path is relative to the data folder. |
@@ -164,6 +166,20 @@ Behaviour worth knowing:
 A command with a rule is limited to bot admins plus the listed server groups and unique IDs. That works both ways: it can restrict an everyday command (only the DJ group may `!play`) or hand an admin command to a group (moderators may `!status`). An empty rule, `{}`, means admins only. Rules are keyed by the command name, and an alias works too. The bot warns at start-up about any rule that matches no command, which is nearly always a typo.
 
 To find a group's ID, send the bot `!whoami`: it lists the server groups the server reports for you. A common setup is to restrict `skip` to a DJ group and leave `!voteskip` open, so everyone else has to vote.
+
+### Web dashboard
+
+The `web` cog is a control panel in a browser: what is playing with a progress bar, pause, skip, stop and volume, the queue with remove buttons, a box to add music by link or search, one-click radio stations, your saved playlists, and the bot's replies. It is **off by default**. To turn it on, add `"web"` to `cogs` in your config and restart the bot.
+
+**It only listens on the machine the bot runs on** (`127.0.0.1`). Nothing is exposed to the internet, and the config refuses any other address. On a VPS, open it in a browser on the VPS itself (for example over Remote Desktop) at `http://127.0.0.1:8787`.
+
+**Signing in.** There are no passwords. Send the bot `!weblogin` in TeamSpeak. It replies **privately** with a short one-time code such as `K7M2-9QXP`. Type it into the page. The code works once and expires after 5 minutes, and repeated wrong guesses are locked out. You are then signed in as *your TeamSpeak identity*.
+
+**Permissions.** Every button simply sends the matching chat command as you (`!skip`, `!volume 30`, `!playlist load ...`), so the dashboard follows exactly the same rules as chat: the admin list, your group rules in `permissions.commands`, cooldowns, and "follow the caller". A button can never do something the command would not allow. You must be connected to TeamSpeak for the buttons to work. To limit who may sign in at all, put a rule on `weblogin` (see permissions above).
+
+**Safety.** The page only accepts requests addressed to this machine by name or number and from its own origin, which stops a malicious web page from driving it through your browser. Login cookies are HttpOnly and SameSite=Strict, request sizes and command rates are limited, and song titles and other outside text are only ever shown as plain text, never as HTML.
+
+Remote access over HTTPS, and playing your own audio files, are planned but not built yet.
 
 ### Playlists
 
