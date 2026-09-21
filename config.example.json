@@ -16,7 +16,7 @@
 
   "privilegeKey": "",
 
-  "cogs": ["core", "audio", "avatar", "playlists"],
+  "cogs": ["core", "audio", "avatar", "playlists", "voteskip"],
 
   "logLevel": "info",
 
@@ -28,6 +28,14 @@
   "playlists": {
     "maxPlaylists": 50,
     "maxTracks": 100
+  },
+
+  "voteskip": {
+    "threshold": 0.5
+  },
+
+  "permissions": {
+    "commands": {}
   },
 
   "follow": {

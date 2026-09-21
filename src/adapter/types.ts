@@ -14,6 +14,8 @@ export interface IncomingMessage {
   senderId: number;
   senderUid: string;
   senderName: string;
+  /** The sender's server-group IDs, as the server reports them. */
+  senderGroups: number[];
   text: string;
 }
 
@@ -22,6 +24,8 @@ export interface TsUser {
   uid: string;
   name: string;
   channelId: bigint;
+  /** Server-group IDs. */
+  groups: number[];
 }
 
 export interface TsChannel {

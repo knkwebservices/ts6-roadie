@@ -447,11 +447,20 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
         snapshot() {
           const item = (t: Track): QueueItem => ({ kind: t.kind, title: t.title, url: t.url, durationSec: t.durationSec });
           return {
-            current: queue.current && player?.playing ? item(queue.current) : undefined,
+            current: queue.current && player?.playing ? { ...item(queue.current), id: queue.current.id } : undefined,
             upcoming: queue.upcoming.map(item),
           };
         },
         queue: (ctx, items, opts) => queueRequest(ctx, 'media', async () => items, opts?.label),
+        skip() {
+          if (!player?.playing) return false;
+          player.stop();
+          return true;
+        },
+        resolve: async (input) => {
+          const found = await deps.resolveMedia(input, cfg);
+          return found.map((it) => ({ kind: it.kind ?? 'media', title: it.title, url: it.url, durationSec: it.durationSec }));
+        },
       });
     },
 

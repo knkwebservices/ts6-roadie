@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import type { IncomingMessage, TsAdapter } from '../adapter/types.js';
-import type { Config } from '../config.js';
+import type { CommandRule, Config } from '../config.js';
 import type { Log } from '../logger.js';
 import type { StateStore } from '../state.js';
 import { TypedEmitter } from '../util/emitter.js';
@@ -10,7 +10,7 @@ import { errMessage, parseCommandLine, stripBbcode } from '../util/text.js';
 import { BOT_VERSION } from '../version.js';
 import { CogManager } from './cogs.js';
 import { ServiceRegistry } from './services.js';
-import type { BotApi, BotEvents, CommandContext } from './types.js';
+import type { BotApi, BotEvents, CommandContext, CommandDef } from './types.js';
 
 export interface BotOptions {
   config: Config;
@@ -85,8 +85,25 @@ export class Bot implements BotApi {
     setTimeout(() => this.#onRestart(), 500);
   }
 
+  /** The rule for a command, looked up by its name or any of its aliases. */
+  #ruleFor(def: CommandDef): CommandRule | undefined {
+    const rules = this.config.permissions.commands;
+    for (const n of [def.name, ...(def.aliases ?? [])]) if (Object.hasOwn(rules, n)) return rules[n];
+    return undefined;
+  }
+
+  /** Rule names that match no loaded command or alias: almost always a typo. */
+  unknownPermissionRules(): string[] {
+    const known = new Set<string>();
+    for (const { def } of this.cogs.commands()) for (const n of [def.name, ...(def.aliases ?? [])]) known.add(n);
+    return Object.keys(this.config.permissions.commands).filter((n) => !known.has(n));
+  }
+
   async start(): Promise<void> {
     await this.cogs.loadAll(this.config.cogs);
+    for (const name of this.unknownPermissionRules()) {
+      this.log.warn(`permissions.commands has a rule for "${name}", but no loaded command has that name (a typo, or its cog is not loaded)`);
+    }
 
     this.adapter.events.on('message', (m) => this.#onMessage(m));
     this.adapter.events.on('connected', () => {
@@ -175,8 +192,13 @@ export class Bot implements BotApi {
       }
     };
 
-    if (def.perm === 'admin' && !isAdmin) {
-      await reply('That command is for bot admins only.');
+    // Access: a configured rule replaces the command's built-in default. Bot admins always pass.
+    const rule = this.#ruleFor(def);
+    const allowed = rule
+      ? isAdmin || (rule.uids ?? []).includes(m.senderUid) || (rule.groups ?? []).some((g) => m.senderGroups.includes(g))
+      : def.perm !== 'admin' || isAdmin;
+    if (!allowed) {
+      await reply(rule ? `You don't have permission to use ${this.config.prefix}${def.name}.` : 'That command is for bot admins only.');
       return;
     }
 

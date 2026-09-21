@@ -15,6 +15,7 @@ import { TypedEmitter } from '../util/emitter.js';
 import { chunkText, errMessage, sleep } from '../util/text.js';
 import { applyAvatar, clearAvatar as clearAvatarFlag, type AvatarIo } from './avatar.js';
 import { hostFromAddress, sendOverTransfer } from './filetransfer.js';
+import { parseGroupIds } from './groups.js';
 import type { AdapterEvents, AvatarResult, IncomingMessage, MessageScope, TsAdapter, TsChannel, TsUser } from './types.js';
 
 export interface TeamspeakAdapterOptions {
@@ -123,6 +124,7 @@ export class TeamspeakAdapter implements TsAdapter {
         senderId: m.invokerID,
         senderUid: m.invokerUID,
         senderName: m.invokerName,
+        senderGroups: parseGroupIds(m.invokerGroups),
         text: m.message,
       });
     });
@@ -205,7 +207,7 @@ export class TeamspeakAdapter implements TsAdapter {
     const self = this.selfId;
     return this.#snapshot.clients
       .filter((c) => c.type === CLIENT_TYPE_NORMAL && c.id !== self)
-      .map((c) => ({ id: c.id, uid: c.uid, name: c.nickname, channelId: c.channelID }));
+      .map((c) => ({ id: c.id, uid: c.uid, name: c.nickname, channelId: c.channelID, groups: parseGroupIds(c.serverGroups) }));
   }
 
   usersInChannel(channelId: bigint): TsUser[] {
@@ -224,6 +226,7 @@ export class TeamspeakAdapter implements TsAdapter {
         uid: info['client_unique_identifier'] ?? known?.uid ?? '',
         name: info['client_nickname'] ?? known?.name ?? '',
         channelId: cid,
+        groups: info['client_servergroups'] !== undefined ? parseGroupIds(info['client_servergroups']) : (known?.groups ?? []),
       };
     } catch (e) {
       this.#log.debug(`locateUser(${id}) query failed: ${errMessage(e)}`);

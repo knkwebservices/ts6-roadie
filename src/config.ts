@@ -11,6 +11,14 @@ export interface RadioStation {
   url: string;
 }
 
+/** Who may use one command, beyond the bot admins (who can always use everything). */
+export interface CommandRule {
+  /** Server-group IDs allowed to use the command. */
+  groups?: number[];
+  /** TeamSpeak unique IDs allowed to use the command. */
+  uids?: string[];
+}
+
 export interface Config {
   configVersion: number;
   server: {
@@ -38,6 +46,18 @@ export interface Config {
     file: string;
     /** Set the avatar automatically each time the bot connects (skipped if the server already shows it). */
     applyOnConnect: boolean;
+  };
+  permissions: {
+    /**
+     * Per-command access rules, keyed by command name (aliases share their command's rule).
+     * A command with a rule is limited to bot admins plus the listed groups and users. This can
+     * restrict an everyday command (e.g. play) or delegate an admin one. No rule = the default.
+     */
+    commands: Record<string, CommandRule>;
+  };
+  voteskip: {
+    /** A skip needs MORE than this fraction of the people listening (0.5 = a majority). */
+    threshold: number;
   };
   playlists: {
     /** How many saved playlists the server may hold. */
@@ -82,10 +102,12 @@ export const DEFAULT_CONFIG: Config = {
   prefix: '!',
   admins: [],
   privilegeKey: '',
-  cogs: ['core', 'audio', 'avatar', 'playlists'],
+  cogs: ['core', 'audio', 'avatar', 'playlists', 'voteskip'],
   logLevel: 'info',
   avatar: { file: '', applyOnConnect: true },
   playlists: { maxPlaylists: 50, maxTracks: 100 },
+  permissions: { commands: {} },
+  voteskip: { threshold: 0.5 },
   follow: { idleReturnSeconds: 120, aloneLeaveSeconds: 60 },
   audio: {
     defaultVolume: 50,
@@ -165,6 +187,20 @@ export function validateConfig(c: Config): Config {
   need(Array.isArray(c.admins) && c.admins.every((a) => typeof a === 'string'), 'admins must be an array of unique-ID strings');
   need(Array.isArray(c.cogs) && c.cogs.includes('core'), 'cogs must include "core"');
   need(['debug', 'info', 'warn', 'error'].includes(c.logLevel), 'logLevel must be debug, info, warn or error');
+  need(typeof c.voteskip.threshold === 'number' && c.voteskip.threshold >= 0 && c.voteskip.threshold < 1, 'voteskip.threshold must be a number from 0 up to (not including) 1');
+  need(isObject(c.permissions.commands), 'permissions.commands must be an object of command name -> rule');
+  if (isObject(c.permissions.commands)) {
+    for (const [name, rule] of Object.entries(c.permissions.commands)) {
+      const at = `permissions.commands.${name}`;
+      if (!isObject(rule)) {
+        problems.push(`${at} must be an object like { "groups": [12], "uids": ["..."] }`);
+        continue;
+      }
+      const r = rule as Record<string, unknown>;
+      need(r.groups === undefined || (Array.isArray(r.groups) && r.groups.every((g) => Number.isInteger(g) && (g as number) >= 0)), `${at}.groups must be an array of server-group ID numbers`);
+      need(r.uids === undefined || (Array.isArray(r.uids) && r.uids.every((u) => typeof u === 'string')), `${at}.uids must be an array of unique-ID strings`);
+    }
+  }
   need(Number.isInteger(c.playlists.maxPlaylists) && c.playlists.maxPlaylists >= 1, 'playlists.maxPlaylists must be a whole number, at least 1');
   need(Number.isInteger(c.playlists.maxTracks) && c.playlists.maxTracks >= 1, 'playlists.maxTracks must be a whole number, at least 1');
   need(typeof c.avatar.file === 'string', 'avatar.file must be a string (a path, or empty for the bundled icon)');

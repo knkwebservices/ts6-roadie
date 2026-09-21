@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+- New `voteskip` cog: `!voteskip` (`!vs`) skips the current track once more than half of the people in the bot's channel have voted (`voteskip.threshold`).
+- New permission rules by server group or unique ID, per command (`permissions.commands`), for restricting everyday commands or delegating admin ones. `!whoami` now shows your server groups so you can find the IDs. The bot warns at start-up about rules that match no command.
+- Playlists can now be edited: `!playlist add <name> | <link or search>`, `remove`, `move` and `rename`.
+- The audio service gained `skip()` and `resolve()`, and the playing track has an `id`.
+- Spotify links now get a clear explanation instead of a failed lookup. SoundCloud and Bandcamp links (including sets and albums) are documented; yt-dlp recognises them.
+- README: the verified-status table now records playlists and starting after a reboot as verified on a real server.
+- Existing installs: add `"voteskip"` to `cogs` in `config.json`.
+
 ## 0.4.0
 - New `playlists` cog: `!playlist save|load|list|show|delete`. Saves the current track plus the queue under a name and loads it later; loading follows the caller into their channel like `!play`. Only a playlist's owner or an admin can overwrite or delete it. Stored in `data/playlists.json` (a damaged file is set aside, never overwritten).
 - New service registry for cogs (`bot.services`), so one cog can use another without importing it. The audio cog now offers an `audio` service; playlists use it.

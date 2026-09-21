@@ -16,7 +16,7 @@ A music bot for **TeamSpeak 6** that carries the music to whoever asks for it. S
 
 | Verified on a real TS6 server | Verified by automated tests only | Not verified |
 | --- | --- | --- |
-| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure, uploading the bot's avatar (`!avatar`), updating a live Windows service with `deploy.mjs` | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), playlists, install/update/roll-back script (against a fake service) | Redeeming a privilege key on first connect (`privilegeKey`), starting automatically after a reboot, Linux service setup, channels the bot has no permission to join |
+| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure, starting automatically after a reboot, uploading the bot's avatar (`!avatar`), playlists (save, load, show, following the caller), updating a live Windows service with `deploy.mjs` | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), playlist editing, vote skip, permission rules by server group, install/update/roll-back script (against a fake service) | Redeeming a privilege key on first connect (`privilegeKey`), SoundCloud and Bandcamp playback (yt-dlp recognises their links; audio not yet tried on a real server), your server reporting users' server groups (check with `!whoami`), Linux service setup |
 
 The TeamSpeak protocol code is a third-party library ([`@echosixhiya/teamspeak-client`](https://github.com/EchoSixHIYA/teamspeak-js), MIT). It is young. All use of it lives in one file, `src/adapter/teamspeak.ts`, behind an interface (`src/adapter/types.ts`). If it ever breaks against a server update, that file is the only place to change.
 
@@ -108,7 +108,8 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!radio [number\|name\|URL]` | No argument lists stations. Or give a direct stream URL. |
 | `!queue` (`!q`), `!np` | What's playing and what's next |
 | `!skip`, `!stop`, `!pause`, `!resume`, `!clear`, `!remove <n>`, `!shuffle`, `!volume [0-100]` | Playback control. You must be in the bot's channel (admins can always). |
-| `!playlist save\|load\|list\|show\|delete [name]` (`!pl`) | Save what is queued as a named playlist and load it later. See [Playlists](#playlists). |
+| `!playlist save\|load\|list\|show\|add\|remove\|move\|rename\|delete` (`!pl`) | Save what is queued as a named playlist, edit it, and load it later. See [Playlists](#playlists). |
+| `!voteskip` (`!vs`) | Vote to skip the current track. It skips once more than half of the people in the channel agree. See [Vote skip and permissions](#vote-skip-and-permissions). |
 | `!summon` (`!join`) | Bring the bot to your channel |
 | `!leave` (`!home`) | Stop and go back to the home channel |
 | `!help [command]`, `!ping`, `!whoami` | Everyone |
@@ -121,6 +122,7 @@ Behaviour worth knowing:
 - **Alone means leave.** If nobody else is in its channel for `follow.aloneLeaveSeconds` (default 60) it stops and goes home. After the queue empties it goes home after `follow.idleReturnSeconds` (default 120).
 - **Radio can't be paused** (a live stream has no position), so `!pause` on radio stops it. A station stays in the queue until skipped.
 - Links are checked so the bot won't fetch from localhost or private network addresses.
+- **Other sites.** SoundCloud and Bandcamp links work like YouTube ones (yt-dlp handles them), and SoundCloud sets and Bandcamp albums queue up to `audio.maxPlaylistItems` tracks. Spotify links cannot be played, because Spotify's audio is protected. The bot says so and suggests searching for the song by name.
 
 ## Configuration
 
@@ -130,6 +132,8 @@ Behaviour worth knowing:
 | --- | --- |
 | `server.homeChannel` | Where the bot lives and returns to |
 | `server.identityLevel` | Security level of the bot's identity (default 10). Raise it if a server demands more; higher levels take exponentially longer to generate. |
+| `voteskip.threshold` | A skip needs MORE than this fraction of the listeners to vote (default `0.5`, a majority; `0` means one vote is enough) |
+| `permissions.commands` | Per-command access rules by server group or unique ID. See [Vote skip and permissions](#vote-skip-and-permissions). |
 | `playlists.maxPlaylists` / `playlists.maxTracks` | How many playlists the server may hold (default 50) and the longest one in tracks (default 100) |
 | `avatar.file` | Image for the bot's avatar (PNG, JPEG or GIF). Empty = the bundled Roadie icon. A relative path is relative to the data folder. |
 | `avatar.applyOnConnect` | Set the avatar automatically each time the bot connects, skipping the upload if the server already shows it (default `true`) |
@@ -138,21 +142,45 @@ Behaviour worth knowing:
 | `audio.radioStations` | Your own stations: `{ "key": { "name": "...", "url": "https://..." } }`. Replaces the built-in SomaFM list, whose URLs are not guaranteed, so check them. |
 | `audio.ytdlpExtraArgs` | Extra yt-dlp arguments, e.g. `["--js-runtimes","node"]` or `["--cookies","C:\\path\\cookies.txt"]` |
 
+### Vote skip and permissions
+
+**Vote skip.** `!voteskip` (or `!vs`) lets the people in the bot's channel decide together. The track skips once more than `voteskip.threshold` of the people listening (default `0.5`, a majority) have voted. Votes belong to one track, and someone who leaves the channel stops counting. Alone with the bot, one vote skips at once.
+
+**Permissions.** By default anyone can use the music commands and only bot admins (the unique IDs in `admins`) can use the admin ones. To change that for a particular command, add a rule:
+
+```json
+"permissions": {
+  "commands": {
+    "play":   { "groups": [12] },
+    "skip":   { "groups": [12], "uids": ["abc123...="] },
+    "status": { "groups": [7] }
+  }
+}
+```
+
+A command with a rule is limited to bot admins plus the listed server groups and unique IDs. That works both ways: it can restrict an everyday command (only the DJ group may `!play`) or hand an admin command to a group (moderators may `!status`). An empty rule, `{}`, means admins only. Rules are keyed by the command name, and an alias works too. The bot warns at start-up about any rule that matches no command, which is nearly always a typo.
+
+To find a group's ID, send the bot `!whoami`: it lists the server groups the server reports for you. A common setup is to restrict `skip` to a DJ group and leave `!voteskip` open, so everyone else has to vote.
+
 ### Playlists
 
 The `playlists` cog saves what is currently playing and queued under a name, so a group can bring back its favourites with one command instead of searching every time.
 
 ```
-!playlist save friday night    saves the current track plus the queue
-!playlist load friday night    queues it (the bot follows you, exactly like !play)
-!playlist list                 every saved playlist
-!playlist show friday night    the tracks in one
-!playlist delete friday night  removes it
+!playlist save friday night              saves the current track plus the queue
+!playlist load friday night              queues it (the bot follows you, exactly like !play)
+!playlist list                           every saved playlist
+!playlist show friday night              the tracks in one, with their positions
+!playlist add friday night | never gonna give you up   adds a track (a link or search words); creates the playlist if new
+!playlist remove friday night 2          removes track 2
+!playlist move friday night 3 1          moves track 3 to position 1
+!playlist rename friday night > weekend  renames it
+!playlist delete friday night            removes it
 ```
 
-Anyone can load a playlist. Only the person who saved it, or a bot admin, can overwrite or delete it, and an admin overwriting keeps the original owner. Names are 1-32 letters, numbers, spaces or `_ . ' -` and are not case-sensitive. Playlists live in `data/playlists.json`, written safely so a crash cannot corrupt them. If that file is ever damaged by hand-editing, the bot moves it aside as `playlists.json.broken-<time>` and starts empty rather than overwriting it. Links in the file are checked again on load, so a hand-edit cannot make the bot fetch from a private address.
+Anyone can load a playlist. Only the person who saved it, or a bot admin, can overwrite, edit, rename or delete it, and an admin overwriting keeps the original owner. Names are 1-32 letters, numbers, spaces or `_ . ' -` and are not case-sensitive. Playlists live in `data/playlists.json`, written safely so a crash cannot corrupt them. If that file is ever damaged by hand-editing, the bot moves it aside as `playlists.json.broken-<time>` and starts empty rather than overwriting it. Links in the file are checked again on load, so a hand-edit cannot make the bot fetch from a private address.
 
-If you are updating an existing install, add `"playlists"` to `cogs` in your config.
+If you are updating an existing install, add `"playlists"` (and `"voteskip"` for vote skip) to `cogs` in your config.
 
 ### Avatar
 

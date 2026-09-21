@@ -87,6 +87,9 @@ export async function resolveMedia(input: string, cfg: Config['audio'], run: Run
   let target: string;
   if (/^https?:\/\//i.test(q)) {
     if (!isPublicHttpUrl(q)) throw new SourceError("I can't fetch from that address.");
+    if (/(^|\.)spotify\.com$/i.test(new URL(q).hostname)) {
+      throw new SourceError("Spotify links can't be played (Spotify's audio is protected). Search for the song by name instead, e.g. !play artist - title");
+    }
     target = q;
   } else {
     if (q.length > 200 || /[\r\n]/.test(q)) throw new SourceError('That search is too long.');

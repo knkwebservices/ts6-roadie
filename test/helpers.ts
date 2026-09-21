@@ -93,13 +93,13 @@ export class FakeAdapter implements TsAdapter {
   }
 
   // ---- test conveniences ----
-  addUser(id: number, name: string, channelId: bigint, uid = `uid-${name}`): TsUser {
-    const u = { id, uid, name, channelId };
+  addUser(id: number, name: string, channelId: bigint, uid = `uid-${name}`, groups: number[] = []): TsUser {
+    const u: TsUser = { id, uid, name, channelId, groups };
     this.userList.push(u);
     return u;
   }
   say(user: TsUser, text: string, scope: IncomingMessage['scope'] = 'private'): void {
-    this.events.emit('message', { scope, senderId: user.id, senderUid: user.uid, senderName: user.name, text });
+    this.events.emit('message', { scope, senderId: user.id, senderUid: user.uid, senderName: user.name, senderGroups: user.groups, text });
   }
   lastReply(): string {
     return this.sent.at(-1)?.text ?? '';

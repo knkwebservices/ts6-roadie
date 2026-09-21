@@ -10,7 +10,9 @@ test('defaults fill in what config.json leaves out', () => {
   assert.equal(c.server.address, 'ts.example.com');
   assert.equal(c.prefix, '!');
   assert.equal(c.audio.codec, 5);
-  assert.deepEqual(c.cogs, ['core', 'audio', 'avatar', 'playlists']);
+  assert.deepEqual(c.cogs, ['core', 'audio', 'avatar', 'playlists', 'voteskip']);
+  assert.deepEqual(c.permissions, { commands: {} });
+  assert.deepEqual(c.voteskip, { threshold: 0.5 });
   assert.deepEqual(c.playlists, { maxPlaylists: 50, maxTracks: 100 });
   assert.deepEqual(c.avatar, { file: '', applyOnConnect: true });
   assert.ok(Object.keys(c.audio.radioStations).length > 0);

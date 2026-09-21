@@ -397,3 +397,50 @@ test('playlists round trip through the REAL audio cog: save, stop, then load fol
     r.cleanup();
   }
 });
+
+test('the audio service can skip and can look things up without queueing them', async () => {
+  const r = await makeRig();
+  try {
+    const svc = r.bot.services.get<import('../src/core/services.js').AudioService>('audio')!;
+    assert.equal(svc.skip(), false, 'nothing playing yet');
+    const found = await svc.resolve('some words');
+    assert.equal(found.length, 1);
+    assert.equal(found[0]!.kind, 'media');
+    assert.match(found[0]!.url, /youtube\.com/);
+    assert.equal(svc.snapshot().upcoming.length, 0, 'a lookup queues nothing');
+
+    const alice = r.adapter.addUser(5, 'Alice', CH.home);
+    r.adapter.say(alice, '!play one');
+    await until(() => r.player.playing, 2000, 'playback');
+    const now = svc.snapshot().current!;
+    assert.match(now.title, /one/);
+    assert.equal(typeof now.id, 'number');
+    assert.equal(svc.skip(), true);
+    await until(() => !r.player.playing, 2000, 'skip');
+  } finally {
+    r.cleanup();
+  }
+});
+
+test('vote skip through the REAL audio cog: the second vote skips to the next track', async () => {
+  const r = await makeRig();
+  try {
+    await r.bot.loadCog('voteskip');
+    const alice = r.adapter.addUser(5, 'Alice', CH.home);
+    const bob = r.adapter.addUser(6, 'Bob', CH.home);
+    r.adapter.say(alice, '!play one');
+    await until(() => r.player.played.length === 1, 2000, 'first track');
+    r.adapter.say(alice, '!play two');
+    await until(() => sentTexts(r).some((t) => /Queued: .*\(position 1\)/.test(t)), 2000, 'second queued');
+
+    r.adapter.say(alice, '!voteskip');
+    await until(() => sentTexts(r).some((t) => /Alice voted to skip\. 1\/2 needed/.test(t)), 2000, 'first vote');
+    assert.equal(r.player.played.length, 1, 'one vote of two is not enough');
+
+    r.adapter.say(bob, '!voteskip');
+    await until(() => r.player.played.length === 2, 2000, 'the next track after the vote passes');
+    assert.match(r.player.played[1]!.url, /v=two/);
+  } finally {
+    r.cleanup();
+  }
+});

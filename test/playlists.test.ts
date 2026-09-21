@@ -16,17 +16,25 @@ const song = (n: number, kind: QueueItem['kind'] = 'media'): QueueItem => ({
   durationSec: kind === 'radio' ? undefined : 100 + n,
 });
 
-/** A stand-in for the audio cog's service: we set what is "playing", and record what gets queued. */
+/** A stand-in for the audio cog's service: we set what is "playing", and record what gets queued or looked up. */
 function fakeAudio(snapshot: { current?: QueueItem; upcoming: QueueItem[] }) {
   const queued: { items: QueueItem[]; label?: string; by: string }[] = [];
+  const lookups: string[] = [];
   const svc: AudioService = {
-    snapshot: () => snapshot,
+    snapshot: () => ({ current: snapshot.current ? { ...snapshot.current, id: 1 } : undefined, upcoming: snapshot.upcoming }),
     queue: async (ctx, items, opts) => {
       queued.push({ items, label: opts?.label, by: ctx.msg.senderName });
       await ctx.reply(`(fake) queued ${items.length}`);
     },
+    skip: () => true,
+    resolve: async (input) => {
+      lookups.push(input);
+      if (input === 'boom') throw new Error('yt-dlp could not open that (Video unavailable)');
+      if (input === 'album') return [song(21), song(22), song(23)];
+      return [song(20)];
+    },
   };
-  return { svc, queued, snapshot };
+  return { svc, queued, lookups, snapshot };
 }
 
 async function setup(playlistsCfg: Record<string, unknown> = {}, withAudio = true) {
@@ -212,4 +220,113 @@ test('store: hand-edited unsafe URLs and junk are dropped on load', () => {
 test('validName', () => {
   for (const ok of ['friday', 'Friday Night', "rock 'n' roll", 'Ünïcode ok', 'a-b_c.d', '90s']) assert.equal(validName(ok), true, ok);
   for (const bad of ['', ' lead', 'trail ', 'a[b]', 'x'.repeat(33), 'semi;colon', 'new\nline']) assert.equal(validName(bad), false, JSON.stringify(bad));
+});
+
+// ---- editing ---------------------------------------------------------------------------------------
+
+test('add: creates a playlist from a lookup, appends to it, and says what it added', async () => {
+  const { h, audio, alice } = await setup();
+  try {
+    assert.match(await ask(h, alice, '!playlist add road trip | some search words'), /Added "Song 20" to "road trip" \(1 track now\)/);
+    assert.deepEqual(audio.lookups, ['some search words']);
+    assert.match(await ask(h, alice, '!pl add road trip | album'), /Added 3 tracks to "road trip" \(4 tracks now\)/);
+    assert.match(await ask(h, alice, '!playlist list'), /road trip \(4 tracks, by Alice\)/);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('add: usage, bad names, lookup errors and other people\'s playlists are handled before anything is saved', async () => {
+  const { h, audio, alice, bob } = await setup();
+  try {
+    assert.match(await ask(h, alice, '!playlist add just a name'), /Usage: !playlist add <name> \| <link/);
+    assert.match(await ask(h, alice, '!playlist add | nothing'), /Usage/);
+    assert.match(await ask(h, alice, `!playlist add ${'x'.repeat(40)} | song`), /1-32 letters/);
+    assert.equal(audio.lookups.length, 0, 'no lookup for a request that is malformed');
+
+    assert.match(await ask(h, alice, '!playlist add broken | boom'), /Video unavailable/);
+    assert.match(await ask(h, alice, '!playlist list'), /No playlists yet/, 'a failed lookup must not create anything');
+
+    await ask(h, alice, '!playlist add mine | song');
+    const lookups = audio.lookups.length;
+    assert.match(await ask(h, bob, '!playlist add mine | song'), /belongs to Alice/);
+    assert.equal(audio.lookups.length, lookups, 'refused before wasting a lookup');
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('add respects the per-playlist limit', async () => {
+  const { h, alice } = await setup({ maxTracks: 2 });
+  try {
+    assert.match(await ask(h, alice, '!playlist add tiny | album'), /Added 2 tracks to "tiny".*1 left out/);
+    assert.match(await ask(h, alice, '!playlist add tiny | song'), /already has 2 tracks/);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('remove and move edit the order, and show renumbers', async () => {
+  const { h, alice } = await setup();
+  try {
+    await ask(h, alice, '!playlist save mix'); // Song 1, Song 2, Song 3
+    assert.match(await ask(h, alice, '!playlist move mix 3 1'), /Moved "Song 3" from 3 to 1/);
+    let shown = await ask(h, alice, '!playlist show mix');
+    assert.match(shown, /1\. Song 3 \[radio\][\s\S]*2\. Song 1[\s\S]*3\. Song 2/);
+
+    assert.match(await ask(h, alice, '!playlist remove mix 2'), /Removed "Song 1" from "mix" \(2 tracks left\)/);
+    shown = await ask(h, alice, '!playlist show mix');
+    assert.match(shown, /1\. Song 3[\s\S]*2\. Song 2/);
+    assert.doesNotMatch(shown, /Song 1/);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('remove and move validate positions and usage', async () => {
+  const { h, alice } = await setup();
+  try {
+    await ask(h, alice, '!playlist save mix');
+    assert.match(await ask(h, alice, '!playlist remove mix 0'), /Give a position from 1 to 3/);
+    assert.match(await ask(h, alice, '!playlist remove mix 9'), /Give a position from 1 to 3/);
+    assert.match(await ask(h, alice, '!playlist remove mix'), /Usage: !playlist remove <name> <position>/);
+    assert.match(await ask(h, alice, '!playlist move mix 1 9'), /Positions go from 1 to 3/);
+    assert.match(await ask(h, alice, '!playlist move mix 1'), /Usage: !playlist move/);
+    assert.match(await ask(h, alice, '!playlist remove nothere 1'), /No playlist called "nothere"/);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('rename: works, keeps the tracks and owner, refuses clashes and bad names, and allows a case-only change', async () => {
+  const { h, alice, bob } = await setup();
+  try {
+    await ask(h, alice, '!playlist save old name');
+    await ask(h, alice, '!playlist add other | song');
+
+    assert.match(await ask(h, alice, '!playlist rename old name > new name'), /Renamed "old name" to "new name"/);
+    assert.match(await ask(h, bob, '!playlist list'), /new name \(3 tracks, by Alice\)/);
+    assert.match(await ask(h, bob, '!playlist load old name'), /No playlist called "old name"/);
+
+    assert.match(await ask(h, alice, '!playlist rename new name > other'), /already a playlist called "other"/);
+    assert.match(await ask(h, alice, '!playlist rename new name > bad;name'), /1-32 letters/);
+    assert.match(await ask(h, alice, '!playlist rename new name'), /Usage: !playlist rename/);
+    assert.match(await ask(h, alice, '!playlist rename new name > New Name'), /Renamed "new name" to "New Name"/);
+    assert.match(await ask(h, bob, '!playlist rename New Name > stolen'), /belongs to Alice/);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('non-owners cannot edit; admins can', async () => {
+  const { h, alice, bob, admin } = await setup();
+  try {
+    await ask(h, alice, '!playlist save mix');
+    for (const cmd of ['remove mix 1', 'move mix 1 2', 'add mix | song']) {
+      assert.match(await ask(h, bob, `!playlist ${cmd}`), /belongs to Alice/, cmd);
+    }
+    assert.match(await ask(h, admin, '!playlist remove mix 1'), /Removed "Song 1"/);
+  } finally {
+    h.cleanup();
+  }
 });

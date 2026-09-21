@@ -83,6 +83,22 @@ test('resolveMedia: live streams have no duration', async () => {
   assert.equal(m!.durationSec, undefined);
 });
 
+test('resolveMedia: Spotify links get a helpful explanation instead of a failed lookup', async () => {
+  let called = false;
+  const run: Runner = async () => {
+    called = true;
+    return { stdout: '', stderr: '', code: 0 };
+  };
+  await assert.rejects(resolveMedia('https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC', audio, run), /Spotify.*Search for the song by name/);
+  assert.equal(called, false, 'no point asking yt-dlp about a link it cannot play');
+});
+
+test('resolveMedia: SoundCloud sets and Bandcamp albums (playlist results) queue their tracks', async () => {
+  const entries = [1, 2, 3].map((i) => ({ title: `Track ${i}`, url: `https://artist.bandcamp.com/track/t${i}`, duration: 100 + i }));
+  const out = await resolveMedia('https://artist.bandcamp.com/album/some-album', audio, fakeRun(JSON.stringify({ _type: 'playlist', entries })));
+  assert.deepEqual(out.map((m) => m.title), ['Track 1', 'Track 2', 'Track 3']);
+});
+
 test('resolveMedia: errors are turned into friendly SourceErrors', async () => {
   await assert.rejects(resolveMedia('http://localhost/x', audio, fakeRun('')), SourceError);
   await assert.rejects(resolveMedia('x'.repeat(300), audio, fakeRun('')), /too long/);

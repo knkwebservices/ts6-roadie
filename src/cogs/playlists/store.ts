@@ -111,6 +111,18 @@ export class PlaylistStore {
     this.#save();
   }
 
+  /** Give a playlist a new name. False if the old one is missing or the new name belongs to a different playlist. */
+  rename(oldName: string, newName: string): boolean {
+    const pl = this.get(oldName);
+    if (!pl) return false;
+    const to = keyOf(newName);
+    if (to !== keyOf(oldName) && this.#lists.has(to)) return false;
+    this.#lists.delete(keyOf(oldName));
+    this.#lists.set(to, { ...pl, name: newName, updatedAt: Date.now() });
+    this.#save();
+    return true;
+  }
+
   delete(name: string): boolean {
     const gone = this.#lists.delete(keyOf(name));
     if (gone) this.#save();

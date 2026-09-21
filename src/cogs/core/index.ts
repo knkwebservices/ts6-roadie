@@ -57,6 +57,7 @@ const factory: CogFactory = (bot): Cog => {
               `Name: ${ctx.msg.senderName}`,
               `Unique ID: ${ctx.msg.senderUid}`,
               `Bot admin: ${ctx.isAdmin ? 'yes' : 'no'}`,
+              `Server groups: ${ctx.msg.senderGroups.length ? ctx.msg.senderGroups.join(', ') : 'none reported'}`,
               `Channel: ${ch ?? (u ? `#${u.channelId}` : 'unknown - I cannot see you')}`,
             ].join('\n'),
           );
