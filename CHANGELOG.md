@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.0
+- **New `steam` cog** (opt-in: add `"steam"` to `cogs` and restart): tells the channel when someone you're tracking starts (or switches) a game on Steam. Needs a free API key from https://steamcommunity.com/dev/apikey (`steam.apiKey`). `!steam add <steamid64> [label]` tracks a person (admins), plain `!steam` lists everyone tracked and what they're doing, `!steam on|off|interval <seconds>|check` (admins) control it. Up to 25 people. The first check after loading (or adding someone) never announces what was already true, so a restart is quiet; only a change is posted, and stopping is not announced. A bad key or a Steam outage shows up in `!steam` rather than spamming the channel.
+- The community and playlists cogs' services are joined by a `steam` service (`src/core/services.ts`), for a future dashboard card.
+
 ## 0.12.0
 - **New `community` cog** (opt-in: add `"community"` to `cogs` in `config.json` and restart): an AFK mover and a welcome message.
   - **AFK mover** (`!afk`, admins only). Someone who has been away, muted (microphone or speakers) or idle for `community.afk.minutes` (default 30) is moved to the AFK channel (`community.afk.channel`, default "AFK Room"). They get a private warning `community.afk.warnSeconds` (default 60) seconds before, and a note when they are moved. When they are active again (not away, not muted, and something done in the last minute) they are moved back to the channel they were in, even after a bot restart. Bot admins, members of `community.afk.exemptGroups` and people in `community.afk.ignoreChannels` are never moved, and people who choose the AFK channel themselves are left alone. Idle time is asked from the server for a few people at a time (never a flood of questions) and checked again just before anyone is moved, so someone who has just come back is not moved by an out-of-date figure.

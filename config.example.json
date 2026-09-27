@@ -43,6 +43,13 @@
     "widget": { "enabled": false, "showNames": true, "origins": [] }
   },
 
+  "steam": {
+    "enabled": false,
+    "apiKey": "",
+    "pollSeconds": 120,
+    "players": []
+  },
+
   "community": {
     "afk": {
       "enabled": false,

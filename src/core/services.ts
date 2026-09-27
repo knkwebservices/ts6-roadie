@@ -169,3 +169,31 @@ export interface CommunityState {
 export interface CommunityService {
   state(): CommunityState;
 }
+
+// ---- the steam cog's service --------------------------------------------------------------
+
+export const STEAM_SERVICE = 'steam';
+
+/** One tracked person's last-known status, for the dashboard. */
+export interface SteamPlayerStatus {
+  steamId: string;
+  /** The label from config, or their Steam name if none was set. */
+  label: string;
+  online: boolean;
+  game?: string;
+  /** When this status was last confirmed, ms since 1970. */
+  at: number;
+}
+
+export interface SteamServiceState {
+  enabled: boolean;
+  pollSeconds: number;
+  /** Set once the key has been used successfully; a config with a key that has never worked stays false. */
+  keyOk: boolean;
+  lastError?: string;
+  players: SteamPlayerStatus[];
+}
+
+export interface SteamService {
+  state(): SteamServiceState;
+}

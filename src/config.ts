@@ -78,6 +78,15 @@ export interface Config {
      */
     publicUrl: string;
   };
+  steam: {
+    enabled: boolean;
+    /** Free, from https://steamcommunity.com/dev/apikey. Never logged or shown in chat. */
+    apiKey: string;
+    /** How often to check, in seconds. */
+    pollSeconds: number;
+    /** People to watch, by SteamID64 (17-digit number, e.g. from https://steamid.io). */
+    players: { steamId: string; label: string }[];
+  };
   community: {
     /** Moves people who have gone AFK to a channel of their own. */
     afk: {
@@ -182,6 +191,7 @@ export const DEFAULT_CONFIG: Config = {
   permissions: { commands: {} },
   voteskip: { threshold: 0.5 },
   web: { host: '127.0.0.1', port: 8787, codeMinutes: 5, sessionHours: 12, publicUrl: '', widget: { enabled: false, showNames: true, origins: [] } },
+  steam: { enabled: false, apiKey: '', pollSeconds: 120, players: [] },
   community: {
     afk: { enabled: false, channel: 'AFK Room', minutes: 30, warnSeconds: 60, checkSeconds: 30, exemptGroups: [], ignoreChannels: [] },
     welcome: { enabled: false, message: "Welcome, {name}! I'm the music bot. Send me a private message saying !help to see what I can do.", cooldownSeconds: 60 },
@@ -310,6 +320,14 @@ export function validateConfig(c: Config): Config {
       Array.isArray(c.web.widget.origins) &&
       c.web.widget.origins.every((o) => typeof o === 'string' && isOrigin(o)),
     'web.widget must look like { "enabled": false, "showNames": true, "origins": ["https://example.com"] } (each origin is a website address with no path)',
+  );
+  need(typeof c.steam.enabled === 'boolean', 'steam.enabled must be true or false');
+  need(typeof c.steam.apiKey === 'string', 'steam.apiKey must be a string (empty if you have not set one up yet)');
+  need(typeof c.steam.pollSeconds === 'number' && c.steam.pollSeconds >= 30 && c.steam.pollSeconds <= 3600, 'steam.pollSeconds must be from 30 to 3600');
+  need(
+    Array.isArray(c.steam.players) &&
+      c.steam.players.every((pl) => isObject(pl) && typeof pl.steamId === 'string' && /^\d{17}$/.test(pl.steamId) && typeof pl.label === 'string' && pl.label.length <= 64),
+    'steam.players must be a list of { "steamId": "<17-digit SteamID64>", "label": "<name, up to 64 characters>" }',
   );
   {
     const a = c.community.afk;

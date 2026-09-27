@@ -16,7 +16,7 @@ A music bot for **TeamSpeak 6** that carries the music to whoever asks for it. S
 
 | Verified on a real TS6 server | Verified by automated tests only | Not verified |
 | --- | --- | --- |
-| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure, starting automatically after a reboot, uploading the bot's avatar (`!avatar`), playlists (save, load, show, following the caller), updating a live Windows service with `deploy.mjs`, playlist editing, vote skip, SoundCloud and Bandcamp links, your server reporting users' server groups (`!whoami`), Spotify song links (and the album message), radio song titles from a real station | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), permission rules by server group, the web dashboard (real HTTP requests plus the real page driven in a simulated browser), install/update/roll-back script (against a fake service) | Redeeming a privilege key on first connect (`privilegeKey`), the web dashboard in a real browser, Linux service setup |
+| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure, starting automatically after a reboot, uploading the bot's avatar (`!avatar`), playlists (save, load, show, following the caller), updating a live Windows service with `deploy.mjs`, playlist editing, vote skip, SoundCloud and Bandcamp links, your server reporting users' server groups (`!whoami`), Spotify song links (and the album message), radio song titles from a real station | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), permission rules by server group, the web dashboard (real HTTP requests plus the real page driven in a simulated browser), install/update/roll-back script (against a fake service), Steam status tracking (against a fake Steam API) | Redeeming a privilege key on first connect (`privilegeKey`), the web dashboard in a real browser, Linux service setup, Steam status tracking against the real Steam API |
 
 The TeamSpeak protocol code is a third-party library ([`@echosixhiya/teamspeak-client`](https://github.com/EchoSixHIYA/teamspeak-js), MIT). It is young. All use of it lives in one file, `src/adapter/teamspeak.ts`, behind an interface (`src/adapter/types.ts`). If it ever breaks against a server update, that file is the only place to change.
 
@@ -122,6 +122,7 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!autodj [on\|off\|source radio <station>\|source playlist <name>]` | Admins only. See [Auto-DJ and 24/7](#auto-dj-and-247). |
 | `!stay [on\|off]` (`!247`) | Admins only. 24/7 mode: stay in the current channel. |
 | `!afk`, `!welcome`, `!widget` | Admins only. The [community tools](#community-tools-afk-mover-welcome-message-and-public-widget): AFK mover, welcome message and public widget. |
+| `!steam [check\|add\|remove\|interval]` | Plain `!steam` (everyone) lists tracked players and what they're playing. The rest are admin-only. See [Steam status](#steam-status). |
 | `!hideme [on\|off]` (`!hide`) | Leave your name off the public widget (you still count in the total). |
 | `!tools`, `!ytcheck`, `!ytupdate` | Admins only. Tool versions, a YouTube playback test, and a yt-dlp update. See [YouTube](#youtube). |
 | `!block <name or #number> [minutes]`, `!unblock`, `!blocklist`, `!blockword`, `!unblockword` | Admins only. See [Keeping trolls out](#keeping-trolls-out). |
@@ -149,6 +150,7 @@ Behaviour worth knowing:
 | `server.identityLevel` | Security level of the bot's identity (default 10). Raise it if a server demands more; higher levels take exponentially longer to generate. |
 | `voteskip.threshold` | A skip needs MORE than this fraction of the listeners to vote (default `0.5`, a majority; `0` means one vote is enough) |
 | `community.afk.*` / `community.welcome.*` | The [AFK mover and welcome message](#community-tools-afk-mover-welcome-message-and-public-widget), from the `community` cog (add `"community"` to `cogs`). `afk`: `enabled`, `channel` (default "AFK Room"), `minutes` (30), `warnSeconds` (60), `checkSeconds` (30), `exemptGroups` (server-group IDs), `ignoreChannels` (names). `welcome`: `enabled`, `message`, `cooldownSeconds` (60). |
+| `steam.*` | [Steam status](#steam-status), from the `steam` cog (add `"steam"` to `cogs`). `enabled`, `apiKey` (free, from https://steamcommunity.com/dev/apikey), `pollSeconds` (default 120), `players` (a list of `{ "steamId": "<17-digit SteamID64>", "label": "..." }`). |
 | `web.widget` | The public widget: `enabled`, `showNames`, and `origins`, the websites allowed to embed it or read its data, like `["https://tgscgaming.com"]` |
 | `web.host` / `web.port` / `web.codeMinutes` / `web.sessionHours` / `web.publicUrl` | The [web dashboard](#web-dashboard): where it listens (this machine only, port 8787 by default), how long a login code works (5 minutes), how long a browser stays signed in (12 hours), and the public https address when a [reverse proxy](#putting-the-dashboard-on-the-internet) serves it (empty by default) |
 | `permissions.commands` | Per-command access rules by server group or unique ID. See [Vote skip and permissions](#vote-skip-and-permissions). |
@@ -282,6 +284,21 @@ These come from the `community` cog and the dashboard, and everything is **off u
 ```
 
 By default no other website may embed the page or read the data with a script. List the websites you want in `web.widget.origins` in `config.json` (for example `"origins": ["https://tgscgaming.com"]`) and restart. The widget is read only and needs no login, but it is public: anyone with the address can see it, so think about whether you want names shown. It is limited to 60 requests a minute per visitor, the answer is kept for a few seconds, and the pages ask search engines not to list them. The rest of the dashboard is as closed as before.
+
+### Steam status
+
+The `steam` cog posts in the channel when someone you're tracking starts (or switches) a game on Steam. It's **off by default**: add `"steam"` to `cogs` in `config.json`, get a free key from https://steamcommunity.com/dev/apikey, and put it in `steam.apiKey`.
+
+```
+!steam add 76561197960287930 Gaben     tracks a person by their SteamID64 (find it at https://steamid.io)
+!steam                                 lists everyone tracked and what they're doing right now
+!steam remove Gaben                    stops tracking them
+!steam on / !steam off                 turns tracking on or off
+!steam interval 120                    how often to check, in seconds (30-3600)
+!steam check                           admins: check right now instead of waiting
+```
+
+Adding, removing, turning it on/off and setting the interval need a bot admin; plain `!steam` is for everyone. Up to 25 people can be tracked. The bot only reads what Steam's API reports (which needs the tracked person's "game status" set to public in their own Steam privacy settings) — nothing is installed on their computer and no Steam account of the bot's own is involved. The first check after loading (or after adding someone) is silent, so restarting the bot never re-announces a game that was already in progress; only a *change* — starting a game, or switching to a different one — is posted. Stopping is not announced. A bad or missing key, or a Steam outage, shows up in `!steam` rather than spamming the channel.
 
 ### Playlists
 
