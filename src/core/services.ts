@@ -238,3 +238,32 @@ export interface AnalyticsState {
 export interface AnalyticsService {
   state(): AnalyticsState;
 }
+
+// ---- the twitch cog's service --------------------------------------------------------------
+
+export const TWITCH_SERVICE = 'twitch';
+
+/** One tracked channel's last-known status, for the dashboard. */
+export interface TwitchStreamStatus {
+  login: string;
+  /** The label from config, or their Twitch display name if none was set. */
+  label: string;
+  live: boolean;
+  game?: string;
+  title?: string;
+  /** When the stream started, ms since 1970 (only meaningful while `live`). */
+  startedAt?: number;
+}
+
+export interface TwitchServiceState {
+  enabled: boolean;
+  pollSeconds: number;
+  /** Set once the app token has been used successfully; a config with credentials that have never worked stays false. */
+  keyOk: boolean;
+  lastError?: string;
+  channels: TwitchStreamStatus[];
+}
+
+export interface TwitchService {
+  state(): TwitchServiceState;
+}

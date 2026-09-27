@@ -16,7 +16,7 @@ A music bot for **TeamSpeak 6** that carries the music to whoever asks for it. S
 
 | Verified on a real TS6 server | Verified by automated tests only | Not verified |
 | --- | --- | --- |
-| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure, starting automatically after a reboot, uploading the bot's avatar (`!avatar`), playlists (save, load, show, following the caller), updating a live Windows service with `deploy.mjs`, playlist editing, vote skip, SoundCloud and Bandcamp links, your server reporting users' server groups (`!whoami`), Spotify song links (and the album message), radio song titles from a real station | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), permission rules by server group, the web dashboard (real HTTP requests plus the real page driven in a simulated browser), install/update/roll-back script (against a fake service), Steam status tracking (against a fake Steam API), server analytics (sampling, uptime tracking, song-history aggregation) | Redeeming a privilege key on first connect (`privilegeKey`), the web dashboard in a real browser, Linux service setup, Steam status tracking against the real Steam API |
+| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure, starting automatically after a reboot, uploading the bot's avatar (`!avatar`), playlists (save, load, show, following the caller), updating a live Windows service with `deploy.mjs`, playlist editing, vote skip, SoundCloud and Bandcamp links, your server reporting users' server groups (`!whoami`), Spotify song links (and the album message), radio song titles from a real station | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), permission rules by server group, the web dashboard (real HTTP requests plus the real page driven in a simulated browser), install/update/roll-back script (against a fake service), Steam status tracking (against a fake Steam API), server analytics (sampling, uptime tracking, song-history aggregation), Twitch live alerts (against a fake Twitch API, including app-token refresh) | Redeeming a privilege key on first connect (`privilegeKey`), the web dashboard in a real browser, Linux service setup, Steam status tracking against the real Steam API, Twitch live alerts against the real Twitch API |
 
 The TeamSpeak protocol code is a third-party library ([`@echosixhiya/teamspeak-client`](https://github.com/EchoSixHIYA/teamspeak-js), MIT). It is young. All use of it lives in one file, `src/adapter/teamspeak.ts`, behind an interface (`src/adapter/types.ts`). If it ever breaks against a server update, that file is the only place to change.
 
@@ -124,6 +124,7 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!afk`, `!welcome`, `!widget` | Admins only. The [community tools](#community-tools-afk-mover-welcome-message-and-public-widget): AFK mover, welcome message and public widget. |
 | `!steam [check\|add\|remove\|interval]` | Plain `!steam` (everyone) lists tracked players and what they're playing. The rest are admin-only. See [Steam status](#steam-status). |
 | `!analytics` (`!stats`) `[hours\|channels\|songs\|on\|off\|interval\|reset]` | Plain `!analytics` (everyone) shows a summary. The rest are admin-only. See [Server analytics](#server-analytics). |
+| `!twitch` (`!live`) `[check\|add\|remove\|interval]` | Plain `!twitch` (everyone) lists tracked channels and who's live. The rest are admin-only. See [Twitch live alerts](#twitch-live-alerts). |
 | `!hideme [on\|off]` (`!hide`) | Leave your name off the public widget (you still count in the total). |
 | `!tools`, `!ytcheck`, `!ytupdate` | Admins only. Tool versions, a YouTube playback test, and a yt-dlp update. See [YouTube](#youtube). |
 | `!block <name or #number> [minutes]`, `!unblock`, `!blocklist`, `!blockword`, `!unblockword` | Admins only. See [Keeping trolls out](#keeping-trolls-out). |
@@ -153,6 +154,7 @@ Behaviour worth knowing:
 | `community.afk.*` / `community.welcome.*` | The [AFK mover and welcome message](#community-tools-afk-mover-welcome-message-and-public-widget), from the `community` cog (add `"community"` to `cogs`). `afk`: `enabled`, `channel` (default "AFK Room"), `minutes` (30), `warnSeconds` (60), `checkSeconds` (30), `exemptGroups` (server-group IDs), `ignoreChannels` (names). `welcome`: `enabled`, `message`, `cooldownSeconds` (60). |
 | `steam.*` | [Steam status](#steam-status), from the `steam` cog (add `"steam"` to `cogs`). `enabled`, `apiKey` (free, from https://steamcommunity.com/dev/apikey), `pollSeconds` (default 120), `players` (a list of `{ "steamId": "<17-digit SteamID64>", "label": "..." }`). |
 | `analytics.*` | [Server analytics](#server-analytics), from the `analytics` cog (add `"analytics"` to `cogs`). `enabled`, `pollSeconds` (default 300, how often it samples who's online and where). |
+| `twitch.*` | [Twitch live alerts](#twitch-live-alerts), from the `twitch` cog (add `"twitch"` to `cogs`). `enabled`, `clientId`/`clientSecret` (free, from https://dev.twitch.tv/console/apps), `pollSeconds` (default 120), `channels` (a list of `{ "login": "<twitch.tv/name>", "label": "..." }`). |
 | `web.widget` | The public widget: `enabled`, `showNames`, and `origins`, the websites allowed to embed it or read its data, like `["https://tgscgaming.com"]` |
 | `web.host` / `web.port` / `web.codeMinutes` / `web.sessionHours` / `web.publicUrl` | The [web dashboard](#web-dashboard): where it listens (this machine only, port 8787 by default), how long a login code works (5 minutes), how long a browser stays signed in (12 hours), and the public https address when a [reverse proxy](#putting-the-dashboard-on-the-internet) serves it (empty by default) |
 | `permissions.commands` | Per-command access rules by server group or unique ID. See [Vote skip and permissions](#vote-skip-and-permissions). |
@@ -318,6 +320,21 @@ The `analytics` cog quietly samples who's online and where, and keeps a running 
 ```
 
 Plain `!analytics` and its read-only subcommands (`hours`, `channels`, `songs`) are for everyone; turning it on/off, changing the interval, resetting and forcing a check need a bot admin. Every `pollSeconds` (default 300 = 5 minutes) it counts who's online in each channel and adds that to the running totals — there's no per-person history kept, just totals per channel and per hour of the server's clock. Song counts come from the audio cog's own play history, so `!analytics songs` needs `"audio"` in `cogs` too; if more than 50 tracks are played between two checks, the ones in the middle can be missed, which in practice only matters on a very short interval with a very busy queue. Restarting the bot doesn't lose anything: the running totals live in `data/analytics.json`, and uptime is tracked as a series of sessions so a crash still leaves a close estimate of when the bot went down.
+
+### Twitch live alerts
+
+The `twitch` cog posts in the channel when someone you're tracking goes live on Twitch. It's **off by default**: add `"twitch"` to `cogs` in `config.json`, register a free app at https://dev.twitch.tv/console/apps (Twitch requires two-factor authentication on your account to do this), and put its **Client ID** and **Client Secret** in `twitch.clientId` / `twitch.clientSecret`. The app needs no special permissions and never signs in as anyone; it only asks Twitch "is this channel live right now?".
+
+```
+!twitch add tgsckrazyice Ice     tracks a channel by its Twitch login (from twitch.tv/<login>, not the display name)
+!twitch                          lists everyone tracked and whether they're live right now
+!twitch remove Ice                stops tracking them
+!twitch on / !twitch off          turns alerts on or off
+!twitch interval 120               how often to check, in seconds (30-3600)
+!twitch check                      admins: check right now instead of waiting
+```
+
+Adding, removing, turning it on/off and setting the interval need a bot admin; plain `!twitch` (or `!live`) is for everyone. Up to 25 channels can be tracked. The first check after loading (or after adding someone) is silent, so restarting the bot never re-announces a stream that was already running; only *going live* is posted, with the game and title if Twitch reports them. Going offline is not announced. A bad client ID/secret or a Twitch outage shows up in `!twitch` rather than spamming the channel; an expired app token is refreshed automatically.
 
 ### Playlists
 

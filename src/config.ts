@@ -92,6 +92,16 @@ export interface Config {
     /** How often to sample who's online and where, in seconds. */
     pollSeconds: number;
   };
+  twitch: {
+    enabled: boolean;
+    /** From a free app at https://dev.twitch.tv/console/apps. Never logged or shown in chat. */
+    clientId: string;
+    clientSecret: string;
+    /** How often to check, in seconds. */
+    pollSeconds: number;
+    /** Channels to watch, by their Twitch login (from twitch.tv/<login>, not the display name). */
+    channels: { login: string; label: string }[];
+  };
   community: {
     /** Moves people who have gone AFK to a channel of their own. */
     afk: {
@@ -198,6 +208,7 @@ export const DEFAULT_CONFIG: Config = {
   web: { host: '127.0.0.1', port: 8787, codeMinutes: 5, sessionHours: 12, publicUrl: '', widget: { enabled: false, showNames: true, origins: [] } },
   steam: { enabled: false, apiKey: '', pollSeconds: 120, players: [] },
   analytics: { enabled: false, pollSeconds: 300 },
+  twitch: { enabled: false, clientId: '', clientSecret: '', pollSeconds: 120, channels: [] },
   community: {
     afk: { enabled: false, channel: 'AFK Room', minutes: 30, warnSeconds: 60, checkSeconds: 30, exemptGroups: [], ignoreChannels: [] },
     welcome: { enabled: false, message: "Welcome, {name}! I'm the music bot. Send me a private message saying !help to see what I can do.", cooldownSeconds: 60 },
@@ -337,6 +348,15 @@ export function validateConfig(c: Config): Config {
   );
   need(typeof c.analytics.enabled === 'boolean', 'analytics.enabled must be true or false');
   need(typeof c.analytics.pollSeconds === 'number' && c.analytics.pollSeconds >= 60 && c.analytics.pollSeconds <= 3600, 'analytics.pollSeconds must be from 60 to 3600');
+  need(typeof c.twitch.enabled === 'boolean', 'twitch.enabled must be true or false');
+  need(typeof c.twitch.clientId === 'string', 'twitch.clientId must be a string (empty if you have not set one up yet)');
+  need(typeof c.twitch.clientSecret === 'string', 'twitch.clientSecret must be a string (empty if you have not set one up yet)');
+  need(typeof c.twitch.pollSeconds === 'number' && c.twitch.pollSeconds >= 30 && c.twitch.pollSeconds <= 3600, 'twitch.pollSeconds must be from 30 to 3600');
+  need(
+    Array.isArray(c.twitch.channels) &&
+      c.twitch.channels.every((ch) => isObject(ch) && typeof ch.login === 'string' && /^[a-zA-Z0-9_]{4,25}$/.test(ch.login) && typeof ch.label === 'string' && ch.label.length <= 64),
+    'twitch.channels must be a list of { "login": "<twitch channel name>", "label": "<name, up to 64 characters>" }',
+  );
   {
     const a = c.community.afk;
     const w = c.community.welcome;

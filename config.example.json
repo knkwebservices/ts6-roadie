@@ -55,6 +55,14 @@
     "pollSeconds": 300
   },
 
+  "twitch": {
+    "enabled": false,
+    "clientId": "",
+    "clientSecret": "",
+    "pollSeconds": 120,
+    "channels": []
+  },
+
   "community": {
     "afk": {
       "enabled": false,
