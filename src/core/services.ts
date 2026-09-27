@@ -197,3 +197,44 @@ export interface SteamServiceState {
 export interface SteamService {
   state(): SteamServiceState;
 }
+
+// ---- the analytics cog's service -----------------------------------------------------------
+
+export const ANALYTICS_SERVICE = 'analytics';
+
+export interface AnalyticsHourly {
+  /** 0-23, server local time. */
+  hour: number;
+  avgUsers: number;
+}
+
+export interface AnalyticsChannel {
+  name: string;
+  /** Seconds this channel has had at least one person in it. */
+  seconds: number;
+}
+
+export interface AnalyticsSong {
+  title: string;
+  url: string;
+  plays: number;
+  lastAt: number;
+}
+
+export interface AnalyticsState {
+  enabled: boolean;
+  pollSeconds: number;
+  /** When the current stats started being collected, ms since 1970 (reset by !analytics reset). */
+  since: number;
+  samples: number;
+  /** Summed across every run of the bot, including the one happening right now. */
+  totalUptimeMs: number;
+  restarts: number;
+  hourly: AnalyticsHourly[];
+  topChannels: AnalyticsChannel[];
+  topSongs: AnalyticsSong[];
+}
+
+export interface AnalyticsService {
+  state(): AnalyticsState;
+}

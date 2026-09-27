@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.0
+- **New `analytics` cog** (opt-in: add `"analytics"` to `cogs` and restart): tracks peak times, the busiest channels, the most-played songs, and uptime. `!analytics` (or `!stats`) gives everyone a summary; `!analytics hours|channels|songs [count]` drill into each one; `!analytics on|off|interval <seconds>|reset|check` (admins) control it. Samples who's online every `analytics.pollSeconds` (default 300s) and keeps running totals rather than a raw log, so it stays lightweight over time. Song counts are pulled from the audio cog's own play history, so they need `"audio"` loaded too. Uptime is tracked as a series of sessions in `data/analytics.json`, so a crash still leaves a close estimate of when the bot went down, and nothing is lost across restarts.
+- The steam, community and playlists cogs' services are joined by an `analytics` service (`src/core/services.ts`), for a future dashboard card.
+
 ## 0.13.0
 - **New `steam` cog** (opt-in: add `"steam"` to `cogs` and restart): tells the channel when someone you're tracking starts (or switches) a game on Steam. Needs a free API key from https://steamcommunity.com/dev/apikey (`steam.apiKey`). `!steam add <steamid64> [label]` tracks a person (admins), plain `!steam` lists everyone tracked and what they're doing, `!steam on|off|interval <seconds>|check` (admins) control it. Up to 25 people. The first check after loading (or adding someone) never announces what was already true, so a restart is quiet; only a change is posted, and stopping is not announced. A bad key or a Steam outage shows up in `!steam` rather than spamming the channel.
 - The community and playlists cogs' services are joined by a `steam` service (`src/core/services.ts`), for a future dashboard card.

@@ -87,6 +87,11 @@ export interface Config {
     /** People to watch, by SteamID64 (17-digit number, e.g. from https://steamid.io). */
     players: { steamId: string; label: string }[];
   };
+  analytics: {
+    enabled: boolean;
+    /** How often to sample who's online and where, in seconds. */
+    pollSeconds: number;
+  };
   community: {
     /** Moves people who have gone AFK to a channel of their own. */
     afk: {
@@ -192,6 +197,7 @@ export const DEFAULT_CONFIG: Config = {
   voteskip: { threshold: 0.5 },
   web: { host: '127.0.0.1', port: 8787, codeMinutes: 5, sessionHours: 12, publicUrl: '', widget: { enabled: false, showNames: true, origins: [] } },
   steam: { enabled: false, apiKey: '', pollSeconds: 120, players: [] },
+  analytics: { enabled: false, pollSeconds: 300 },
   community: {
     afk: { enabled: false, channel: 'AFK Room', minutes: 30, warnSeconds: 60, checkSeconds: 30, exemptGroups: [], ignoreChannels: [] },
     welcome: { enabled: false, message: "Welcome, {name}! I'm the music bot. Send me a private message saying !help to see what I can do.", cooldownSeconds: 60 },
@@ -329,6 +335,8 @@ export function validateConfig(c: Config): Config {
       c.steam.players.every((pl) => isObject(pl) && typeof pl.steamId === 'string' && /^\d{17}$/.test(pl.steamId) && typeof pl.label === 'string' && pl.label.length <= 64),
     'steam.players must be a list of { "steamId": "<17-digit SteamID64>", "label": "<name, up to 64 characters>" }',
   );
+  need(typeof c.analytics.enabled === 'boolean', 'analytics.enabled must be true or false');
+  need(typeof c.analytics.pollSeconds === 'number' && c.analytics.pollSeconds >= 60 && c.analytics.pollSeconds <= 3600, 'analytics.pollSeconds must be from 60 to 3600');
   {
     const a = c.community.afk;
     const w = c.community.welcome;

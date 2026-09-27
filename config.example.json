@@ -50,6 +50,11 @@
     "players": []
   },
 
+  "analytics": {
+    "enabled": false,
+    "pollSeconds": 300
+  },
+
   "community": {
     "afk": {
       "enabled": false,
