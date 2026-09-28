@@ -30,6 +30,24 @@
     "maxTracks": 100
   },
 
+  "servertools": {
+    "notify": {
+      "enabled": false,
+      "rules": [],
+      "message": "Heads up: {name} just joined \"{channel}\".",
+      "cooldownSeconds": 120
+    },
+    "liveNames": {
+      "enabled": false,
+      "channels": [],
+      "updateSeconds": 60
+    },
+    "seen": {
+      "enabled": true,
+      "keepDays": 365
+    }
+  },
+
   "voteskip": {
     "threshold": 0.5
   },

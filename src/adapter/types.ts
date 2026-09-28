@@ -75,6 +75,8 @@ export interface TsAdapter {
   moveSelf(channelId: bigint, password?: string): Promise<void>;
   /** Move another client to a channel (needs the server's move permission). */
   moveUser(userId: number, channelId: bigint): Promise<void>;
+  /** Rename a channel (needs the server's permission to change channel names). */
+  renameChannel(channelId: bigint, name: string): Promise<void>;
   /** How many seconds since this person last did anything, or undefined if the server would not say. */
   idleSeconds(userId: number): Promise<number | undefined>;
   reply(to: IncomingMessage, text: string): Promise<void>;

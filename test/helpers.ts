@@ -81,6 +81,16 @@ export class FakeAdapter implements TsAdapter {
     this.userMoves.push({ id, to: channelId });
     u.channelId = channelId;
   }
+  /** Channel renames the bot made: which channel and the new name. */
+  renames: { id: bigint; name: string }[] = [];
+  failRename: Error | undefined;
+  async renameChannel(id: bigint, name: string) {
+    if (this.failRename) throw this.failRename;
+    const ch = this.chans.find((c) => c.id === id);
+    if (!ch) throw new Error('invalid channelID');
+    this.renames.push({ id, name });
+    ch.name = name;
+  }
   async idleSeconds(id: number) {
     this.idleCalls.push(id);
     return this.idle.get(id);

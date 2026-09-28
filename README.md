@@ -4,6 +4,8 @@
 
 A music bot for **TeamSpeak 6** that carries the music to whoever asks for it. Structured like [Red-DiscordBot](https://github.com/Cog-Creators/Red-DiscordBot): a small core plus **cogs** you can load, unload and reload from chat.
 
+Read how it was built and what it does on a real community server: [TS6 Roadie, a TeamSpeak 6 music bot](https://knkws.com/teamspeak-6-music-bot/).
+
 - **Follows the caller.** Ask for music from any channel. If the bot is idle it joins *your* channel. If it is busy playing for someone else it tells you so, instead of yanking the music away from them.
 - **YouTube** (and anything yt-dlp supports) by link or search words, plus **radio streams**.
 - **No query interface needed.** It connects as a normal voice client, so the server's WebQuery / SSH / HTTP query interfaces can stay off.
@@ -16,7 +18,7 @@ A music bot for **TeamSpeak 6** that carries the music to whoever asks for it. S
 
 | Verified on a real TS6 server | Verified by automated tests only | Not verified |
 | --- | --- | --- |
-| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure, starting automatically after a reboot, uploading the bot's avatar (`!avatar`), playlists (save, load, show, following the caller), updating a live Windows service with `deploy.mjs`, playlist editing, vote skip, SoundCloud and Bandcamp links, your server reporting users' server groups (`!whoami`), Spotify song links (and the album message), radio song titles from a real station | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), permission rules by server group, the web dashboard (real HTTP requests plus the real page driven in a simulated browser), install/update/roll-back script (against a fake service), Steam status tracking (against a fake Steam API), server analytics (sampling, uptime tracking, song-history aggregation), Twitch live alerts (against a fake Twitch API, including app-token refresh) | Redeeming a privilege key on first connect (`privilegeKey`), the web dashboard in a real browser, Linux service setup, Steam status tracking against the real Steam API, Twitch live alerts against the real Twitch API |
+| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure, starting automatically after a reboot, uploading the bot's avatar (`!avatar`), playlists (save, load, show, following the caller), updating a live Windows service with `deploy.mjs`, playlist editing, vote skip, SoundCloud and Bandcamp links, your server reporting users' server groups (`!whoami`), Spotify song links (and the album message), radio song titles from a real station | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), permission rules by server group, the web dashboard (real HTTP requests plus the real page driven in a simulated browser), install/update/roll-back script (against a fake service), Steam status tracking (against a fake Steam API), server analytics (sampling, uptime tracking, song-history aggregation), Twitch live alerts (against a fake Twitch API, including app-token refresh), the support notifier, live channel names, `!seen` and the online record (against a fake server) | Redeeming a privilege key on first connect (`privilegeKey`), the web dashboard in a real browser, Linux service setup, Steam status tracking against the real Steam API, Twitch live alerts against the real Twitch API, renaming channels on a real server (live channel names) |
 
 The TeamSpeak protocol code is a third-party library ([`@echosixhiya/teamspeak-client`](https://github.com/EchoSixHIYA/teamspeak-js), MIT). It is young. All use of it lives in one file, `src/adapter/teamspeak.ts`, behind an interface (`src/adapter/types.ts`). If it ever breaks against a server update, that file is the only place to change.
 
@@ -93,6 +95,7 @@ The bot appears in the client list under its nickname. It needs a server group t
 - **Talk** where it plays (`i_client_talk_power` for channels that require talk power).
 - **See users in other channels** (`i_channel_subscribe_power`). The bot subscribes to all channels on connect so it knows where the caller is. If that is refused it falls back to asking the server per user.
 - Optional: `b_client_ignore_antiflood`, so long queue listings never trip flood protection.
+- Only for [live channel names](#server-tools-support-notifier-live-channel-names-and-seen): changing channel names (`b_channel_modify_name`).
 
 (Names are from the TS3 permission list; the TS6 editor may label them slightly differently.)
 
@@ -125,6 +128,8 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!steam [check\|add\|remove\|interval]` | Plain `!steam` (everyone) lists tracked players and what they're playing. The rest are admin-only. See [Steam status](#steam-status). |
 | `!analytics` (`!stats`) `[hours\|channels\|songs\|on\|off\|interval\|reset]` | Plain `!analytics` (everyone) shows a summary. The rest are admin-only. See [Server analytics](#server-analytics). |
 | `!twitch` (`!live`) `[check\|add\|remove\|interval]` | Plain `!twitch` (everyone) lists tracked channels and who's live. The rest are admin-only. See [Twitch live alerts](#twitch-live-alerts). |
+| `!seen <name>` (`!lastseen`), `!record` | Everyone. When someone was last online, and the most people ever online at once. See [Server tools](#server-tools-support-notifier-live-channel-names-and-seen). |
+| `!notify`, `!livename` | Admins only. The support notifier and live channel names. See [Server tools](#server-tools-support-notifier-live-channel-names-and-seen). |
 | `!hideme [on\|off]` (`!hide`) | Leave your name off the public widget (you still count in the total). |
 | `!tools`, `!ytcheck`, `!ytupdate` | Admins only. Tool versions, a YouTube playback test, and a yt-dlp update. See [YouTube](#youtube). |
 | `!block <name or #number> [minutes]`, `!unblock`, `!blocklist`, `!blockword`, `!unblockword` | Admins only. See [Keeping trolls out](#keeping-trolls-out). |
@@ -335,6 +340,41 @@ The `twitch` cog posts in the channel when someone you're tracking goes live on 
 ```
 
 Adding, removing, turning it on/off and setting the interval need a bot admin; plain `!twitch` (or `!live`) is for everyone. Up to 25 channels can be tracked. The first check after loading (or after adding someone) is silent, so restarting the bot never re-announces a stream that was already running; only *going live* is posted, with the game and title if Twitch reports them. Going offline is not announced. A bad client ID/secret or a Twitch outage shows up in `!twitch` rather than spamming the channel; an expired app token is refreshed automatically.
+
+### Server tools: support notifier, live channel names and !seen
+
+The `servertools` cog adds a few things TeamSpeak 3 servers used to get from separate bots. It's **off until you add it**: put `"servertools"` in `cogs` in `config.json` and restart. `!seen` and `!record` then work straight away; the notifier and live names stay off until an admin switches them on. Settings made with the commands are remembered in `state.json`; the `servertools` section of `config.json` only sets the starting values.
+
+**Support notifier** (`!notify`, admins only). When someone joins a channel you choose, the online members of one or more server groups get a private message, for example your moderators when someone walks into "Support Room". Find a group's ID with `!whoami`.
+
+```
+!notify add Support Room | 12          watch "Support Room", tell server group 12 (several: | 12, 15)
+!notify on / !notify off                switch it on or off
+!notify                                 what is watched, and the message
+!notify message {name} is waiting in {channel}    change the message
+!notify test 1                          send rule 1's message now, to see who gets it
+!notify remove 1                        stop watching rule 1
+```
+
+Connecting straight into the channel counts as joining it. Members of the notified groups joining that channel themselves are not announced, and the same person hopping in and out is only announced once every `servertools.notify.cooldownSeconds` (default 120). People already in the channel when the bot connects are not announced. A channel is remembered by its number, so renaming it later doesn't break the rule.
+
+**Live channel names** (`!livename`, admins only). The bot keeps a channel's name up to date, typically a spacer at the top of your channel list:
+
+```
+!livename add Online | [cspacer]Online: {online}     (use the channel's current name, or #<id>)
+!livename add #42 | [cspacer]Record: {record}
+!livename add #43 | [cspacer]Now: {song}
+!livename on / !livename off
+!livename                   the list, with each channel's number and current name
+!livename now               update them right away
+!livename remove 2
+```
+
+`{online}` is the number of people online now (not counting the bot), `{record}` the most ever online at once, and `{song}` what Roadie is playing (the live song title for a radio station, `-` when nothing is playing). TeamSpeak allows 40 characters in a channel name, so a long song title is shortened with "...". Each channel is renamed at most every `servertools.liveNames.updateSeconds` (default 60, minimum 30) and only when the name would actually change, because TeamSpeak does not like channels being renamed constantly. The bot's server group needs permission to change channel names (`b_channel_modify_name`); if it is missing, `!livename on` and `!livename now` say so. Turning it off leaves the channels with whatever name they had last.
+
+**`!seen <name>`** (everyone) says whether someone is online now and in which channel, or when they were last seen. Part of a name works (`!seen ann` finds "Annie"), and people are remembered by their unique ID, so a new nickname doesn't make them a stranger. It only knows people who have been online since the cog was first loaded. The data lives in `data/seen.json` (just the name and first and last time seen), and people not seen for `servertools.seen.keepDays` (default 365) are forgotten. Set `servertools.seen.enabled` to `false` to switch it off.
+
+**`!record`** (everyone) shows the most people ever online at once, and when.
 
 ### Playlists
 

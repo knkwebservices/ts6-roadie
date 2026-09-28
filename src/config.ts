@@ -128,6 +128,32 @@ export interface Config {
       cooldownSeconds: number;
     };
   };
+  servertools: {
+    /** Tell a server group when someone joins a chosen channel (a support room, say). */
+    notify: {
+      enabled: boolean;
+      /** Channel (by name, or "#<id>") and the server groups (by ID) whose online members are told. */
+      rules: { channel: string; groups: number[] }[];
+      /** What they are told. {name} is the person who joined, {channel} the channel. */
+      message: string;
+      /** Don't tell anyone again about the same person joining the same channel within this many seconds. */
+      cooldownSeconds: number;
+    };
+    /** Keep channel names up to date with live figures, like "[cspacer]Online: 12". */
+    liveNames: {
+      enabled: boolean;
+      /** Channels by ID, and the name to give each. {online}, {record} and {song} are filled in. */
+      channels: { channelId: number; template: string }[];
+      /** Rename a channel at most this often, in seconds (TeamSpeak does not like channels renamed constantly). */
+      updateSeconds: number;
+    };
+    /** Remember when people were last online, for !seen. */
+    seen: {
+      enabled: boolean;
+      /** Forget people not seen for this many days. */
+      keepDays: number;
+    };
+  };
   voteskip: {
     /** A skip needs MORE than this fraction of the people listening (0.5 = a majority). */
     threshold: number;
@@ -212,6 +238,11 @@ export const DEFAULT_CONFIG: Config = {
   community: {
     afk: { enabled: false, channel: 'AFK Room', minutes: 30, warnSeconds: 60, checkSeconds: 30, exemptGroups: [], ignoreChannels: [] },
     welcome: { enabled: false, message: "Welcome, {name}! I'm the music bot. Send me a private message saying !help to see what I can do.", cooldownSeconds: 60 },
+  },
+  servertools: {
+    notify: { enabled: false, rules: [], message: 'Heads up: {name} just joined "{channel}".', cooldownSeconds: 120 },
+    liveNames: { enabled: false, channels: [], updateSeconds: 60 },
+    seen: { enabled: true, keepDays: 365 },
   },
   follow: { idleReturnSeconds: 120, aloneLeaveSeconds: 60 },
   audio: {
@@ -370,6 +401,40 @@ export function validateConfig(c: Config): Config {
     need(isObject(w) && typeof w.enabled === 'boolean', 'community.welcome.enabled must be true or false');
     need(isObject(w) && typeof w.message === 'string' && w.message.trim() !== '' && w.message.length <= 500, 'community.welcome.message must be text of 1 to 500 characters');
     need(isObject(w) && typeof w.cooldownSeconds === 'number' && w.cooldownSeconds >= 0 && w.cooldownSeconds <= 86_400, 'community.welcome.cooldownSeconds must be from 0 to 86400');
+  }
+  {
+    const t = c.servertools;
+    const n = isObject(t) ? t.notify : undefined;
+    const l = isObject(t) ? t.liveNames : undefined;
+    const sn = isObject(t) ? t.seen : undefined;
+    need(isObject(n) && typeof n.enabled === 'boolean', 'servertools.notify.enabled must be true or false');
+    need(
+      isObject(n) &&
+        Array.isArray(n.rules) &&
+        n.rules.every(
+          (r) =>
+            isObject(r) &&
+            typeof r.channel === 'string' &&
+            r.channel.trim() !== '' &&
+            r.channel.length <= 100 &&
+            Array.isArray(r.groups) &&
+            r.groups.length > 0 &&
+            r.groups.every((g) => Number.isInteger(g) && g >= 0),
+        ),
+      'servertools.notify.rules must be a list of { "channel": "<name or #id>", "groups": [<server-group ID>, ...] }',
+    );
+    need(isObject(n) && typeof n.message === 'string' && n.message.trim() !== '' && n.message.length <= 300, 'servertools.notify.message must be text of 1 to 300 characters');
+    need(isObject(n) && typeof n.cooldownSeconds === 'number' && n.cooldownSeconds >= 0 && n.cooldownSeconds <= 86_400, 'servertools.notify.cooldownSeconds must be from 0 to 86400');
+    need(isObject(l) && typeof l.enabled === 'boolean', 'servertools.liveNames.enabled must be true or false');
+    need(
+      isObject(l) &&
+        Array.isArray(l.channels) &&
+        l.channels.every((ch) => isObject(ch) && Number.isInteger(ch.channelId) && (ch.channelId as number) > 0 && typeof ch.template === 'string' && ch.template.trim() !== '' && ch.template.length <= 100),
+      'servertools.liveNames.channels must be a list of { "channelId": <channel ID number>, "template": "<name, up to 100 characters>" }',
+    );
+    need(isObject(l) && typeof l.updateSeconds === 'number' && l.updateSeconds >= 30 && l.updateSeconds <= 3600, 'servertools.liveNames.updateSeconds must be from 30 to 3600');
+    need(isObject(sn) && typeof sn.enabled === 'boolean', 'servertools.seen.enabled must be true or false');
+    need(isObject(sn) && typeof sn.keepDays === 'number' && sn.keepDays >= 1 && sn.keepDays <= 3650, 'servertools.seen.keepDays must be from 1 to 3650');
   }
   need(typeof c.voteskip.threshold === 'number' && c.voteskip.threshold >= 0 && c.voteskip.threshold < 1, 'voteskip.threshold must be a number from 0 up to (not including) 1');
   need(isObject(c.permissions.commands), 'permissions.commands must be an object of command name -> rule');

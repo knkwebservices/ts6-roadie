@@ -3,11 +3,13 @@
 /**
  * TeamSpeak wraps pasted links in BBCode ("[URL]https://…[/URL]"). Strip formatting so
  * commands see plain text. "[URL=link]label[/URL]" keeps the link, drops the label.
+ * Channel spacer markers ([cspacer], [lspacer], [rspacer]) are kept.
  */
 export function stripBbcode(s: string): string {
   return s
     .replace(/\[url=([^\]]+)\][\s\S]*?\[\/url\]/gi, '$1')
-    .replace(/\[\/?[a-z]+(?:=[^\]]*)?\]/gi, '')
+    // (a channel spacer such as [cspacer] is not formatting: it is kept, so it can be used in a channel name)
+    .replace(/\[\/?(?![clr]?spacer)[a-z]+(?:=[^\]]*)?\]/gi, '')
     .trim();
 }
 

@@ -7,6 +7,8 @@ test('stripBbcode unwraps TeamSpeak link markup', () => {
   assert.equal(stripBbcode('!play [URL=https://a.b/c]click here[/URL]'), '!play https://a.b/c');
   assert.equal(stripBbcode('[B]!ping[/B]'), '!ping');
   assert.equal(stripBbcode('!play song [1]'), '!play song [1]'); // not BBCode
+  assert.equal(stripBbcode('!livename add 5 | [cspacer]Online: {online}'), '!livename add 5 | [cspacer]Online: {online}'); // a spacer, not formatting
+  assert.equal(stripBbcode('[lspacer1]x [rspacer]y'), '[lspacer1]x [rspacer]y');
 });
 
 test('parseCommandLine', () => {

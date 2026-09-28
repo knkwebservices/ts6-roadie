@@ -198,11 +198,12 @@ function smokeTest(dir) {
 
 async function switchTo(target, previous) {
   const since = Date.now();
-  log(`stopping service "${opt.service}"`);
+  // (with --no-service nothing is stopped or started, so say nothing that suggests otherwise)
+  if (!opt['no-service']) log(`stopping service "${opt.service}"`);
   service('stop');
   pointCurrentAt(target);
   log(`current -> ${basename(target)}`);
-  log(`starting service "${opt.service}"`);
+  if (!opt['no-service']) log(`starting service "${opt.service}"`);
   const started = service('start');
   const healthy = started && (await waitHealthy(since));
   if (healthy) return { ok: true, health: healthy };
@@ -256,7 +257,7 @@ async function main() {
   for (const old of all.slice(0, Math.max(0, all.length - keep))) {
     if (old !== target && old !== previous) rmSync(old, { recursive: true, force: true });
   }
-  log(`deployed ${basename(target)}${r.health && r.health.version ? ` (bot ${r.health.version} connected)` : ''}`);
+  log(`deployed ${basename(target)}${r.health && r.health.version ? ` (bot ${r.health.version} connected)` : ''}${opt['no-service'] ? ' (no service was stopped or started: --no-service)' : ''}`);
 }
 
 main().catch((e) => die(e.stack ?? e.message));

@@ -254,6 +254,10 @@ export class TeamspeakAdapter implements TsAdapter {
     await clientMove(this.#need(), userId, channelId);
   }
 
+  async renameChannel(channelId: bigint, name: string): Promise<void> {
+    await this.#need().execCommand(buildCommand('channeledit', { cid: String(channelId), channel_name: name }), 10_000);
+  }
+
   async idleSeconds(userId: number): Promise<number | undefined> {
     try {
       const info = await getClientInfo(this.#need(), userId);
