@@ -18,7 +18,7 @@ Read how it was built and what it does on a real community server: [TS6 Roadie, 
 
 | Verified on a real TS6 server | Verified by automated tests only | Not verified |
 | --- | --- | --- |
-| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure, starting automatically after a reboot, uploading the bot's avatar (`!avatar`), playlists (save, load, show, following the caller), updating a live Windows service with `deploy.mjs`, playlist editing, vote skip, SoundCloud and Bandcamp links, your server reporting users' server groups (`!whoami`), Spotify song links (and the album message), radio song titles from a real station | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), permission rules by server group, the web dashboard (real HTTP requests plus the real page driven in a simulated browser), install/update/roll-back script (against a fake service), Steam status tracking (against a fake Steam API), server analytics (sampling, uptime tracking, song-history aggregation), Twitch live alerts (against a fake Twitch API, including app-token refresh), the support notifier, live channel names, `!seen` and the online record (against a fake server) | Redeeming a privilege key on first connect (`privilegeKey`), the web dashboard in a real browser, Linux service setup, Steam status tracking against the real Steam API, Twitch live alerts against the real Twitch API, renaming channels on a real server (live channel names) |
+| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure, starting automatically after a reboot, uploading the bot's avatar (`!avatar`), playlists (save, load, show, following the caller), updating a live Windows service with `deploy.mjs`, playlist editing, vote skip, SoundCloud and Bandcamp links, your server reporting users' server groups (`!whoami`), Spotify song links (and the album message), radio song titles from a real station | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), permission rules by server group, the web dashboard (real HTTP requests plus the real page driven in a simulated browser), install/update/roll-back script (against a fake service), Steam status tracking (against a fake Steam API), server analytics (sampling, uptime tracking, song-history aggregation), Twitch live alerts (against a fake Twitch API, including app-token refresh), the support notifier, live channel names, `!seen` and the online record, temporary rooms (against a fake server) | Redeeming a privilege key on first connect (`privilegeKey`), the web dashboard in a real browser, Linux service setup, Steam status tracking against the real Steam API, Twitch live alerts against the real Twitch API, renaming channels on a real server (live channel names), temporary rooms on a real server (creating the channel, the owner's channel group, the server deleting an empty room) |
 
 The TeamSpeak protocol code is a third-party library ([`@echosixhiya/teamspeak-client`](https://github.com/EchoSixHIYA/teamspeak-js), MIT). It is young. All use of it lives in one file, `src/adapter/teamspeak.ts`, behind an interface (`src/adapter/types.ts`). If it ever breaks against a server update, that file is the only place to change.
 
@@ -95,6 +95,7 @@ The bot appears in the client list under its nickname. It needs a server group t
 - **Talk** where it plays (`i_client_talk_power` for channels that require talk power).
 - **See users in other channels** (`i_channel_subscribe_power`). The bot subscribes to all channels on connect so it knows where the caller is. If that is refused it falls back to asking the server per user.
 - Optional: `b_client_ignore_antiflood`, so long queue listings never trip flood protection.
+- Only for [temporary rooms](#temporary-rooms): creating temporary channels (`b_channel_create_temporary`, and `b_channel_create_child` to make them as sub-channels), moving people, and assigning channel groups (`i_group_member_add_power` high enough for the owner's channel group).
 - Only for [live channel names](#server-tools-support-notifier-live-channel-names-and-seen): changing channel names (`b_channel_modify_name`).
 
 (Names are from the TS3 permission list; the TS6 editor may label them slightly differently.)
@@ -129,6 +130,7 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!analytics` (`!stats`) `[hours\|channels\|songs\|on\|off\|interval\|reset]` | Plain `!analytics` (everyone) shows a summary. The rest are admin-only. See [Server analytics](#server-analytics). |
 | `!twitch` (`!live`) `[check\|add\|remove\|interval]` | Plain `!twitch` (everyone) lists tracked channels and who's live. The rest are admin-only. See [Twitch live alerts](#twitch-live-alerts). |
 | `!seen <name>` (`!lastseen`), `!record` | Everyone. When someone was last online, and the most people ever online at once. See [Server tools](#server-tools-support-notifier-live-channel-names-and-seen). |
+| `!room` (`!myroom`), `!rooms` | `!room` (everyone) takes you to your own temporary room. `!rooms` (admins) sets them up. See [Temporary rooms](#temporary-rooms). |
 | `!notify`, `!livename` | Admins only. The support notifier and live channel names. See [Server tools](#server-tools-support-notifier-live-channel-names-and-seen). |
 | `!hideme [on\|off]` (`!hide`) | Leave your name off the public widget (you still count in the total). |
 | `!tools`, `!ytcheck`, `!ytupdate` | Admins only. Tool versions, a YouTube playback test, and a yt-dlp update. See [YouTube](#youtube). |
@@ -340,6 +342,28 @@ The `twitch` cog posts in the channel when someone you're tracking goes live on 
 ```
 
 Adding, removing, turning it on/off and setting the interval need a bot admin; plain `!twitch` (or `!live`) is for everyone. Up to 25 channels can be tracked. The first check after loading (or after adding someone) is silent, so restarting the bot never re-announces a stream that was already running; only *going live* is posted, with the game and title if Twitch reports them. Going offline is not announced. A bad client ID/secret or a Twitch outage shows up in `!twitch` rather than spamming the channel; an expired app token is refreshed automatically.
+
+### Temporary rooms
+
+The `rooms` cog gives anyone who joins a "Create a Room" channel a private channel of their own. It's **off until you add it and switch it on**: put `"rooms"` in `cogs` in `config.json`, restart, make a channel called **Create a Room** (or pick another with `!rooms channel`), and send `!rooms on`.
+
+What happens when someone joins it:
+
+1. The bot makes a **temporary** channel named after them ("Ann's Room"; a clash gets "(2)"), as a sub-channel of the join channel unless you chose somewhere else.
+2. It moves them in and makes them the room's **channel admin** (`rooms.ownerChannelGroup`, default `5`, TeamSpeak's usual Channel Admin group; `0` turns this off), so they can rename it, set a password or change who can talk with the normal TeamSpeak menus.
+3. **The server itself deletes the room** once it has been empty for `rooms.deleteDelaySeconds` (default 60). Nothing depends on the bot being up for that.
+
+Someone who already has a room and joins again is just taken back to it, and `!room` (everyone) moves them to their room from anywhere. One new room per person every `rooms.cooldownSeconds` (default 30), and at most `rooms.maxRooms` (default 25) at once.
+
+```
+!rooms                           status, and the rooms open now
+!rooms on / !rooms off           switch it on or off (off leaves open rooms alone until they empty)
+!rooms channel Create a Room     the channel people join (a name or #<id>)
+!rooms under Private Rooms       make rooms under another channel ("none" = under the join channel)
+!rooms name {name}'s Room        the room name; {name} is the nickname (40 characters at most)
+```
+
+Some servers move whoever creates a channel into it; the bot then goes straight back to where it was, after the owner is in (so the room is never left empty). The bot's server group needs to be allowed to create temporary (and child) channels, move people, and assign the owner's channel group; if something is refused, the person is told why and it goes in the log.
 
 ### Server tools: support notifier, live channel names and !seen
 

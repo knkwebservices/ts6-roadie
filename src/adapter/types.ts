@@ -77,6 +77,13 @@ export interface TsAdapter {
   moveUser(userId: number, channelId: bigint): Promise<void>;
   /** Rename a channel (needs the server's permission to change channel names). */
   renameChannel(channelId: bigint, name: string): Promise<void>;
+  /**
+   * Create a temporary channel, which the server deletes by itself once it has been empty for
+   * `deleteDelaySec`. Resolves with the new channel's ID. (The server may move the bot into it.)
+   */
+  createTempChannel(opts: { name: string; parentId: bigint; deleteDelaySec: number }): Promise<bigint>;
+  /** Put someone in a channel group for one channel (for example channel admin of their own room). */
+  setChannelGroup(userId: number, channelId: bigint, channelGroupId: number): Promise<void>;
   /** How many seconds since this person last did anything, or undefined if the server would not say. */
   idleSeconds(userId: number): Promise<number | undefined>;
   reply(to: IncomingMessage, text: string): Promise<void>;

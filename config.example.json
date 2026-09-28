@@ -48,6 +48,17 @@
     }
   },
 
+  "rooms": {
+    "enabled": false,
+    "creatorChannel": "Create a Room",
+    "parentChannel": "",
+    "nameTemplate": "{name}'s Room",
+    "deleteDelaySeconds": 60,
+    "ownerChannelGroup": 5,
+    "cooldownSeconds": 30,
+    "maxRooms": 25
+  },
+
   "voteskip": {
     "threshold": 0.5
   },

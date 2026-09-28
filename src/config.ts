@@ -154,6 +154,24 @@ export interface Config {
       keepDays: number;
     };
   };
+  rooms: {
+    /** Join the "create a room" channel, get a private temporary channel of your own. */
+    enabled: boolean;
+    /** The channel people join to get a room (by name, or "#<id>"). */
+    creatorChannel: string;
+    /** Where rooms are made (by name, or "#<id>"). Empty = as sub-channels of the creator channel. */
+    parentChannel: string;
+    /** The room's name. {name} is the person's nickname. */
+    nameTemplate: string;
+    /** The server deletes a room once it has been empty this many seconds. */
+    deleteDelaySeconds: number;
+    /** Channel group (by ID) the owner gets in their room, so they can rename it or set a password. 0 = none. */
+    ownerChannelGroup: number;
+    /** One new room per person per this many seconds. */
+    cooldownSeconds: number;
+    /** At most this many rooms at once, server-wide. */
+    maxRooms: number;
+  };
   voteskip: {
     /** A skip needs MORE than this fraction of the people listening (0.5 = a majority). */
     threshold: number;
@@ -243,6 +261,16 @@ export const DEFAULT_CONFIG: Config = {
     notify: { enabled: false, rules: [], message: 'Heads up: {name} just joined "{channel}".', cooldownSeconds: 120 },
     liveNames: { enabled: false, channels: [], updateSeconds: 60 },
     seen: { enabled: true, keepDays: 365 },
+  },
+  rooms: {
+    enabled: false,
+    creatorChannel: 'Create a Room',
+    parentChannel: '',
+    nameTemplate: "{name}'s Room",
+    deleteDelaySeconds: 60,
+    ownerChannelGroup: 5,
+    cooldownSeconds: 30,
+    maxRooms: 25,
   },
   follow: { idleReturnSeconds: 120, aloneLeaveSeconds: 60 },
   audio: {
@@ -435,6 +463,17 @@ export function validateConfig(c: Config): Config {
     need(isObject(l) && typeof l.updateSeconds === 'number' && l.updateSeconds >= 30 && l.updateSeconds <= 3600, 'servertools.liveNames.updateSeconds must be from 30 to 3600');
     need(isObject(sn) && typeof sn.enabled === 'boolean', 'servertools.seen.enabled must be true or false');
     need(isObject(sn) && typeof sn.keepDays === 'number' && sn.keepDays >= 1 && sn.keepDays <= 3650, 'servertools.seen.keepDays must be from 1 to 3650');
+  }
+  {
+    const r = c.rooms;
+    need(isObject(r) && typeof r.enabled === 'boolean', 'rooms.enabled must be true or false');
+    need(isObject(r) && typeof r.creatorChannel === 'string' && r.creatorChannel.trim() !== '' && r.creatorChannel.length <= 100, 'rooms.creatorChannel must be a channel name (or "#<id>")');
+    need(isObject(r) && typeof r.parentChannel === 'string' && r.parentChannel.length <= 100, 'rooms.parentChannel must be a channel name, "#<id>", or empty');
+    need(isObject(r) && typeof r.nameTemplate === 'string' && r.nameTemplate.trim() !== '' && r.nameTemplate.length <= 40, 'rooms.nameTemplate must be text of 1 to 40 characters');
+    need(isObject(r) && Number.isInteger(r.deleteDelaySeconds) && r.deleteDelaySeconds >= 10 && r.deleteDelaySeconds <= 86_400, 'rooms.deleteDelaySeconds must be a whole number from 10 to 86400');
+    need(isObject(r) && Number.isInteger(r.ownerChannelGroup) && r.ownerChannelGroup >= 0, 'rooms.ownerChannelGroup must be a channel-group ID number (0 = none)');
+    need(isObject(r) && typeof r.cooldownSeconds === 'number' && r.cooldownSeconds >= 0 && r.cooldownSeconds <= 3600, 'rooms.cooldownSeconds must be from 0 to 3600');
+    need(isObject(r) && Number.isInteger(r.maxRooms) && r.maxRooms >= 1 && r.maxRooms <= 200, 'rooms.maxRooms must be a whole number from 1 to 200');
   }
   need(typeof c.voteskip.threshold === 'number' && c.voteskip.threshold >= 0 && c.voteskip.threshold < 1, 'voteskip.threshold must be a number from 0 up to (not including) 1');
   need(isObject(c.permissions.commands), 'permissions.commands must be an object of command name -> rule');

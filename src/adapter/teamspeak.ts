@@ -258,6 +258,40 @@ export class TeamspeakAdapter implements TsAdapter {
     await this.#need().execCommand(buildCommand('channeledit', { cid: String(channelId), channel_name: name }), 10_000);
   }
 
+  async createTempChannel(opts: { name: string; parentId: bigint; deleteDelaySec: number }): Promise<bigint> {
+    const c = this.#need();
+    const rows = await c.execCommandWithResponse(
+      buildCommand('channelcreate', {
+        channel_name: opts.name,
+        cpid: String(opts.parentId),
+        channel_flag_permanent: '0',
+        channel_flag_semi_permanent: '0',
+        channel_delete_delay: String(Math.max(0, Math.round(opts.deleteDelaySec))),
+      }),
+      10_000,
+    );
+    // The server answers with the new channel's number, usually in the reply itself; if not, it shows
+    // up in the channel list a moment later (names are unique among a parent's sub-channels).
+    const fromReply = rows.map((r) => r['cid']).find((v) => v && /^\d+$/.test(v));
+    if (fromReply) return BigInt(fromReply);
+    const want = opts.name.trim().toLowerCase();
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+      const found = this.channels().find((ch) => ch.parentId === opts.parentId && ch.name.trim().toLowerCase() === want);
+      if (found) return found.id;
+      await sleep(100);
+    }
+    throw new Error('the server did not report the new channel');
+  }
+
+  async setChannelGroup(userId: number, channelId: bigint, channelGroupId: number): Promise<void> {
+    const c = this.#need();
+    const info = await getClientInfo(c, userId);
+    const dbid = info['client_database_id'];
+    if (!dbid) throw new Error('the server did not say who that is (no database ID)');
+    await c.execCommand(buildCommand('setclientchannelgroup', { cgid: String(channelGroupId), cid: String(channelId), cldbid: dbid }), 10_000);
+  }
+
   async idleSeconds(userId: number): Promise<number | undefined> {
     try {
       const info = await getClientInfo(this.#need(), userId);

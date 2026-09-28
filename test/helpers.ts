@@ -91,6 +91,27 @@ export class FakeAdapter implements TsAdapter {
     this.renames.push({ id, name });
     ch.name = name;
   }
+  /** Temporary channels the bot created, and channel groups it handed out. */
+  created: { id: bigint; name: string; parentId: bigint; deleteDelaySec: number }[] = [];
+  failCreate: Error | undefined;
+  /** Act like a server that moves whoever creates a channel into it. */
+  moveCreatorIntoNewChannel = false;
+  nextChannelId = 100n;
+  channelGroups: { userId: number; channelId: bigint; groupId: number }[] = [];
+  failChannelGroup: Error | undefined;
+  async createTempChannel(opts: { name: string; parentId: bigint; deleteDelaySec: number }) {
+    if (this.failCreate) throw this.failCreate;
+    if (this.chans.some((c) => c.parentId === opts.parentId && c.name.toLowerCase() === opts.name.toLowerCase())) throw new Error('channel name is already in use');
+    const id = this.nextChannelId++;
+    this.chans.push({ id, name: opts.name, parentId: opts.parentId });
+    this.created.push({ id, ...opts });
+    if (this.moveCreatorIntoNewChannel) this.chan = id;
+    return id;
+  }
+  async setChannelGroup(userId: number, channelId: bigint, groupId: number) {
+    if (this.failChannelGroup) throw this.failChannelGroup;
+    this.channelGroups.push({ userId, channelId, groupId });
+  }
   async idleSeconds(id: number) {
     this.idleCalls.push(id);
     return this.idle.get(id);
