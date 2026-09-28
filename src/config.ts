@@ -172,6 +172,30 @@ export interface Config {
     /** At most this many rooms at once, server-wide. */
     maxRooms: number;
   };
+  grouptools: {
+    /** Give server groups for time spent online ("Regular" after 10 hours, say). */
+    ranks: {
+      enabled: boolean;
+      /** The ladder, lowest first: after `hours` online, someone gets server group `group` (shown as `label`). */
+      rules: { hours: number; group: number; label: string }[];
+      /** On reaching a rank, take away the lower ranks' groups (so people wear one rank at a time). */
+      replaceLower: boolean;
+      /** Count time while someone is set to away (default no). */
+      countAway: boolean;
+      /** Channels (by name) where time is not counted, like the AFK channel. */
+      ignoreChannels: string[];
+      /** Server groups (by ID) whose members are never given ranks, like staff. */
+      exemptGroups: number[];
+    };
+    /** Only listed people may be in protected server groups. */
+    protect: {
+      enabled: boolean;
+      /** "warn" tells the online bot admins about anyone who should not be in the group; "remove" also takes them out. */
+      mode: 'warn' | 'remove';
+      /** Each protected group (by ID), and the unique IDs allowed in it. Bot admins are always allowed. */
+      groups: { group: number; allowed: string[] }[];
+    };
+  };
   voteskip: {
     /** A skip needs MORE than this fraction of the people listening (0.5 = a majority). */
     threshold: number;
@@ -271,6 +295,10 @@ export const DEFAULT_CONFIG: Config = {
     ownerChannelGroup: 5,
     cooldownSeconds: 30,
     maxRooms: 25,
+  },
+  grouptools: {
+    ranks: { enabled: false, rules: [], replaceLower: true, countAway: false, ignoreChannels: ['AFK Room'], exemptGroups: [] },
+    protect: { enabled: false, mode: 'warn', groups: [] },
   },
   follow: { idleReturnSeconds: 120, aloneLeaveSeconds: 60 },
   audio: {
@@ -474,6 +502,31 @@ export function validateConfig(c: Config): Config {
     need(isObject(r) && Number.isInteger(r.ownerChannelGroup) && r.ownerChannelGroup >= 0, 'rooms.ownerChannelGroup must be a channel-group ID number (0 = none)');
     need(isObject(r) && typeof r.cooldownSeconds === 'number' && r.cooldownSeconds >= 0 && r.cooldownSeconds <= 3600, 'rooms.cooldownSeconds must be from 0 to 3600');
     need(isObject(r) && Number.isInteger(r.maxRooms) && r.maxRooms >= 1 && r.maxRooms <= 200, 'rooms.maxRooms must be a whole number from 1 to 200');
+  }
+  {
+    const g = c.grouptools;
+    const rk = isObject(g) ? g.ranks : undefined;
+    const pr = isObject(g) ? g.protect : undefined;
+    need(isObject(rk) && typeof rk.enabled === 'boolean', 'grouptools.ranks.enabled must be true or false');
+    need(
+      isObject(rk) &&
+        Array.isArray(rk.rules) &&
+        rk.rules.length <= 20 &&
+        rk.rules.every((r) => isObject(r) && typeof r.hours === 'number' && r.hours > 0 && r.hours <= 100_000 && Number.isInteger(r.group) && (r.group as number) > 0 && typeof r.label === 'string' && r.label.trim() !== '' && r.label.length <= 40),
+      'grouptools.ranks.rules must be a list (up to 20) of { "hours": <more than 0>, "group": <server-group ID>, "label": "<name, up to 40 characters>" }',
+    );
+    need(isObject(rk) && typeof rk.replaceLower === 'boolean', 'grouptools.ranks.replaceLower must be true or false');
+    need(isObject(rk) && typeof rk.countAway === 'boolean', 'grouptools.ranks.countAway must be true or false');
+    need(isObject(rk) && Array.isArray(rk.ignoreChannels) && rk.ignoreChannels.every((n) => typeof n === 'string'), 'grouptools.ranks.ignoreChannels must be a list of channel names');
+    need(isObject(rk) && Array.isArray(rk.exemptGroups) && rk.exemptGroups.every((x) => Number.isInteger(x) && x >= 0), 'grouptools.ranks.exemptGroups must be a list of server-group ID numbers');
+    need(isObject(pr) && typeof pr.enabled === 'boolean', 'grouptools.protect.enabled must be true or false');
+    need(isObject(pr) && (pr.mode === 'warn' || pr.mode === 'remove'), 'grouptools.protect.mode must be "warn" or "remove"');
+    need(
+      isObject(pr) &&
+        Array.isArray(pr.groups) &&
+        pr.groups.every((x) => isObject(x) && Number.isInteger(x.group) && (x.group as number) > 0 && Array.isArray(x.allowed) && x.allowed.every((u) => typeof u === 'string' && u.trim() !== '')),
+      'grouptools.protect.groups must be a list of { "group": <server-group ID>, "allowed": ["<unique ID>", ...] }',
+    );
   }
   need(typeof c.voteskip.threshold === 'number' && c.voteskip.threshold >= 0 && c.voteskip.threshold < 1, 'voteskip.threshold must be a number from 0 up to (not including) 1');
   need(isObject(c.permissions.commands), 'permissions.commands must be an object of command name -> rule');

@@ -84,6 +84,15 @@ export interface TsAdapter {
   createTempChannel(opts: { name: string; parentId: bigint; deleteDelaySec: number }): Promise<bigint>;
   /** Put someone in a channel group for one channel (for example channel admin of their own room). */
   setChannelGroup(userId: number, channelId: bigint, channelGroupId: number): Promise<void>;
+  /** Add an online person to a server group (needs enough group member add power). */
+  addServerGroup(userId: number, groupId: number): Promise<void>;
+  /** Take an online person out of a server group (needs enough group member remove power). */
+  removeServerGroup(userId: number, groupId: number): Promise<void>;
+  /**
+   * Someone's server groups as the server says right now. (The groups in users() can be out of date:
+   * the client list does not always hear about group changes made while someone is online.)
+   */
+  userGroups(userId: number): Promise<number[]>;
   /** How many seconds since this person last did anything, or undefined if the server would not say. */
   idleSeconds(userId: number): Promise<number | undefined>;
   reply(to: IncomingMessage, text: string): Promise<void>;

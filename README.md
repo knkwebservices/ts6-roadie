@@ -18,7 +18,7 @@ Read how it was built and what it does on a real community server: [TS6 Roadie, 
 
 | Verified on a real TS6 server | Verified by automated tests only | Not verified |
 | --- | --- | --- |
-| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure, starting automatically after a reboot, uploading the bot's avatar (`!avatar`), playlists (save, load, show, following the caller), updating a live Windows service with `deploy.mjs`, playlist editing, vote skip, SoundCloud and Bandcamp links, your server reporting users' server groups (`!whoami`), Spotify song links (and the album message), radio song titles from a real station | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), permission rules by server group, the web dashboard (real HTTP requests plus the real page driven in a simulated browser), install/update/roll-back script (against a fake service), Steam status tracking (against a fake Steam API), server analytics (sampling, uptime tracking, song-history aggregation), Twitch live alerts (against a fake Twitch API, including app-token refresh), the support notifier, live channel names, `!seen` and the online record, temporary rooms (against a fake server) | Redeeming a privilege key on first connect (`privilegeKey`), the web dashboard in a real browser, Linux service setup, Steam status tracking against the real Steam API, Twitch live alerts against the real Twitch API, renaming channels on a real server (live channel names), temporary rooms on a real server (creating the channel, the owner's channel group, the server deleting an empty room) |
+| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure, starting automatically after a reboot, uploading the bot's avatar (`!avatar`), playlists (save, load, show, following the caller), updating a live Windows service with `deploy.mjs`, playlist editing, vote skip, SoundCloud and Bandcamp links, your server reporting users' server groups (`!whoami`), Spotify song links (and the album message), radio song titles from a real station | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), permission rules by server group, the web dashboard (real HTTP requests plus the real page driven in a simulated browser), install/update/roll-back script (against a fake service), Steam status tracking (against a fake Steam API), server analytics (sampling, uptime tracking, song-history aggregation), Twitch live alerts (against a fake Twitch API, including app-token refresh), the support notifier, live channel names, `!seen` and the online record, temporary rooms, ranks for time online, protected server groups (against a fake server) | Redeeming a privilege key on first connect (`privilegeKey`), the web dashboard in a real browser, Linux service setup, Steam status tracking against the real Steam API, Twitch live alerts against the real Twitch API, renaming channels on a real server (live channel names), temporary rooms on a real server (creating the channel, the owner's channel group, the server deleting an empty room), adding and removing server groups on a real server (ranks, group protection) |
 
 The TeamSpeak protocol code is a third-party library ([`@echosixhiya/teamspeak-client`](https://github.com/EchoSixHIYA/teamspeak-js), MIT). It is young. All use of it lives in one file, `src/adapter/teamspeak.ts`, behind an interface (`src/adapter/types.ts`). If it ever breaks against a server update, that file is the only place to change.
 
@@ -96,6 +96,7 @@ The bot appears in the client list under its nickname. It needs a server group t
 - **See users in other channels** (`i_channel_subscribe_power`). The bot subscribes to all channels on connect so it knows where the caller is. If that is refused it falls back to asking the server per user.
 - Optional: `b_client_ignore_antiflood`, so long queue listings never trip flood protection.
 - Only for [temporary rooms](#temporary-rooms): creating temporary channels (`b_channel_create_temporary`, and `b_channel_create_child` to make them as sub-channels), moving people, and assigning channel groups (`i_group_member_add_power` high enough for the owner's channel group).
+- Only for [ranks and protected groups](#ranks-and-protected-groups): adding and removing people from server groups (`i_group_member_add_power` and `i_group_member_remove_power` at least as high as those groups' needed powers).
 - Only for [live channel names](#server-tools-support-notifier-live-channel-names-and-seen): changing channel names (`b_channel_modify_name`).
 
 (Names are from the TS3 permission list; the TS6 editor may label them slightly differently.)
@@ -131,6 +132,7 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!twitch` (`!live`) `[check\|add\|remove\|interval]` | Plain `!twitch` (everyone) lists tracked channels and who's live. The rest are admin-only. See [Twitch live alerts](#twitch-live-alerts). |
 | `!seen <name>` (`!lastseen`), `!record` | Everyone. When someone was last online, and the most people ever online at once. See [Server tools](#server-tools-support-notifier-live-channel-names-and-seen). |
 | `!room` (`!myroom`), `!rooms` | `!room` (everyone) takes you to your own temporary room. `!rooms` (admins) sets them up. See [Temporary rooms](#temporary-rooms). |
+| `!rank [name]` (`!hours`), `!ranks`, `!protect` | `!rank` (everyone) shows time online and rank. `!ranks` and `!protect` are admin-only. See [Ranks and protected groups](#ranks-and-protected-groups). |
 | `!notify`, `!livename` | Admins only. The support notifier and live channel names. See [Server tools](#server-tools-support-notifier-live-channel-names-and-seen). |
 | `!hideme [on\|off]` (`!hide`) | Leave your name off the public widget (you still count in the total). |
 | `!tools`, `!ytcheck`, `!ytupdate` | Admins only. Tool versions, a YouTube playback test, and a yt-dlp update. See [YouTube](#youtube). |
@@ -342,6 +344,38 @@ The `twitch` cog posts in the channel when someone you're tracking goes live on 
 ```
 
 Adding, removing, turning it on/off and setting the interval need a bot admin; plain `!twitch` (or `!live`) is for everyone. Up to 25 channels can be tracked. The first check after loading (or after adding someone) is silent, so restarting the bot never re-announces a stream that was already running; only *going live* is posted, with the game and title if Twitch reports them. Going offline is not announced. A bad client ID/secret or a Twitch outage shows up in `!twitch` rather than spamming the channel; an expired app token is refreshed automatically.
+
+### Ranks and protected groups
+
+The `grouptools` cog does two things with server groups. Both are **off until you add the cog and switch them on**: put `"grouptools"` in `cogs` in `config.json` and restart.
+
+**Ranks for time online.** Make the server groups first in TeamSpeak (for example "Regular" and "Veteran") and find their ID numbers. One way: put yourself in the group and send the bot `!whoami`, which lists your groups' IDs. A wrong ID is reported (`invalid group ID`) the first time the bot tries to give it. Then give the bot a ladder:
+
+```
+!ranks add 10 9 Regular         after 10 hours online, server group 9 ("Regular")
+!ranks add 50 10 Veteran        after 50 hours, server group 10 ("Veteran")
+!ranks on                        start counting
+!ranks                           the ladder, and how many people have time counted
+!ranks give KrazyIce 200         set someone's total (for people who were here long before ranks)
+!ranks check                     look for anyone due a rank right now
+!ranks remove 1 / !ranks off
+!rank / !rank Ann                (everyone) time online, rank, and how long to the next one
+```
+
+Time is counted every minute for everyone online, except while they are set to away (`grouptools.ranks.countAway`), in `grouptools.ranks.ignoreChannels` (default "AFK Room"), or in `grouptools.ranks.exemptGroups` (staff, say). Reaching a rank adds its group and, with `grouptools.ranks.replaceLower` (default on), takes away the lower ranks' groups, so people wear one rank at a time; set it to `false` to let ranks stack. They get a private "congratulations" message. Time is kept in `data/ranks.json`. Nobody is ever demoted: turning ranks off or removing one leaves the groups people already have. A rank taken away by hand comes back at the next check if they still have the time, so remove the rank from the ladder if you don't want it given any more.
+
+**Protected groups.** Only people on a list may be in a protected server group; anyone else who turns up in it (a mistake, or a leaked privilege key) is reported, or taken out. Bot admins are always allowed.
+
+```
+!protect add 6                   protect server group 6; everyone online in it now is allowed
+!protect allow 6 KrazyIce        allow someone (a name if they are online, or their unique ID)
+!protect on                      start, in warn mode
+!protect                         each protected group, who's allowed, and anyone online who isn't
+!protect mode remove             take people who aren't allowed out of the group
+!protect disallow 6 <name> / !protect remove 6 / !protect off
+```
+
+It starts in **warn mode** (`grouptools.protect.mode`): the online bot admins get a private warning about anyone in a protected group who isn't allowed, at most every 30 minutes per person, and nothing is changed. Members who are **offline** when you protect a group are not allowed until you add them, so check `!protect` and add everyone who belongs there before switching to `!protect mode remove`. In remove mode the bot takes them out and tells the online bot admins.
 
 ### Temporary rooms
 

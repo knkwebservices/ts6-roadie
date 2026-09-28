@@ -112,6 +112,46 @@ export class FakeAdapter implements TsAdapter {
     if (this.failChannelGroup) throw this.failChannelGroup;
     this.channelGroups.push({ userId, channelId, groupId });
   }
+  /** Server-group changes the bot made. */
+  groupChanges: { userId: number; groupId: number; op: 'add' | 'remove' }[] = [];
+  failGroupChange: Error | undefined;
+  /** Act like a server whose client list never hears about group changes (only userGroups() is up to date). */
+  lagGroupChanges = false;
+  /** The server's real groups per client, when they differ from the client list (see lagGroupChanges). */
+  realGroups = new Map<number, number[]>();
+  userGroupsCalls = 0;
+  async userGroups(id: number) {
+    this.userGroupsCalls++;
+    const u = this.userList.find((x) => x.id === id);
+    if (!u) throw new Error('invalid clientID');
+    return [...(this.realGroups.get(id) ?? u.groups)];
+  }
+  async addServerGroup(userId: number, groupId: number) {
+    if (this.failGroupChange) throw this.failGroupChange;
+    const u = this.userList.find((x) => x.id === userId);
+    if (!u) throw new Error('no such client');
+    const real = this.realGroups.get(userId) ?? u.groups;
+    if (real.includes(groupId)) throw new Error('TeamSpeak server error: duplicate entry (id=2561)');
+    this.groupChanges.push({ userId, groupId, op: 'add' });
+    if (this.lagGroupChanges) {
+      this.realGroups.set(userId, [...real, groupId]);
+      return void this.events.emit('directory');
+    }
+    u.groups = [...u.groups, groupId];
+  }
+  async removeServerGroup(userId: number, groupId: number) {
+    if (this.failGroupChange) throw this.failGroupChange;
+    const u = this.userList.find((x) => x.id === userId);
+    if (!u) throw new Error('no such client');
+    const real = this.realGroups.get(userId) ?? u.groups;
+    if (!real.includes(groupId)) throw new Error('TeamSpeak server error: empty result set (id=2563)');
+    this.groupChanges.push({ userId, groupId, op: 'remove' });
+    if (this.lagGroupChanges) {
+      this.realGroups.set(userId, real.filter((g) => g !== groupId));
+      return void this.events.emit('directory');
+    }
+    u.groups = u.groups.filter((g) => g !== groupId);
+  }
   async idleSeconds(id: number) {
     this.idleCalls.push(id);
     return this.idle.get(id);

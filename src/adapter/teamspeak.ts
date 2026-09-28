@@ -292,6 +292,29 @@ export class TeamspeakAdapter implements TsAdapter {
     await c.execCommand(buildCommand('setclientchannelgroup', { cgid: String(channelGroupId), cid: String(channelId), cldbid: dbid }), 10_000);
   }
 
+  /** The person's database ID, which server-group commands need. */
+  async #dbid(userId: number): Promise<string> {
+    const info = await getClientInfo(this.#need(), userId);
+    const dbid = info['client_database_id'];
+    if (!dbid) throw new Error('the server did not say who that is (no database ID)');
+    return dbid;
+  }
+
+  async addServerGroup(userId: number, groupId: number): Promise<void> {
+    const dbid = await this.#dbid(userId);
+    await this.#need().execCommand(buildCommand('servergroupaddclient', { sgid: String(groupId), cldbid: dbid }), 10_000);
+  }
+
+  async removeServerGroup(userId: number, groupId: number): Promise<void> {
+    const dbid = await this.#dbid(userId);
+    await this.#need().execCommand(buildCommand('servergroupdelclient', { sgid: String(groupId), cldbid: dbid }), 10_000);
+  }
+
+  async userGroups(userId: number): Promise<number[]> {
+    const info = await getClientInfo(this.#need(), userId);
+    return parseGroupIds(info['client_servergroups'] ?? '');
+  }
+
   async idleSeconds(userId: number): Promise<number | undefined> {
     try {
       const info = await getClientInfo(this.#need(), userId);

@@ -59,6 +59,22 @@
     "maxRooms": 25
   },
 
+  "grouptools": {
+    "ranks": {
+      "enabled": false,
+      "rules": [],
+      "replaceLower": true,
+      "countAway": false,
+      "ignoreChannels": ["AFK Room"],
+      "exemptGroups": []
+    },
+    "protect": {
+      "enabled": false,
+      "mode": "warn",
+      "groups": []
+    }
+  },
+
   "voteskip": {
     "threshold": 0.5
   },
