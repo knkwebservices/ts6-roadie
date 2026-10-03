@@ -132,6 +132,7 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!analytics` (`!stats`) `[hours\|channels\|songs\|on\|off\|interval\|reset]` | Plain `!analytics` (everyone) shows a summary. The rest are admin-only. See [Server analytics](#server-analytics). |
 | `!twitch` (`!live`) `[check\|add\|remove\|interval]` | Plain `!twitch` (everyone) lists tracked channels and who's live. The rest are admin-only. See [Twitch live alerts](#twitch-live-alerts). |
 | `!seen <name>` (`!lastseen`), `!record` | Everyone (`!record reset` is for bot admins). When someone was last online, and the most people ever online at once. See [Server tools](#server-tools-support-notifier-live-channel-names-and-seen). |
+| `!oh <name>` (`!oncehuman`), `!icarus <name>` (`!ic`) | Everyone. Look up a weapon, item, recipe, creature and more for Once Human or Icarus. See [Once Human and Icarus lookups](#once-human-and-icarus-lookups). |
 | `!nukes [alpha\|bravo\|charlie]` (`!nuke`), `!minerva [list]` | Everyone. This week's Fallout 76 nuke codes, and where Minerva is and when she comes next. `!minerva add`/`remove` are for bot admins. See [Fallout 76](#fallout-76-nuke-codes-and-minerva). |
 | `!events`, `!event <number>`, `!going [number]`, `!notgoing [number]` | Everyone. Events coming up, and signing up for a poke when one starts. `!event add` and `!event remove` are for bot admins by default. See [Events and announcements](#events-and-announcements). |
 | `!announce`, `!nickfilter` | Admins only. Rotating announcements and the nickname filter. See [Events and announcements](#events-and-announcements) and [Nickname filter](#nickname-filter). |
@@ -348,6 +349,20 @@ The `twitch` cog posts in the channel when someone you're tracking goes live on 
 ```
 
 Adding, removing, turning it on/off and setting the interval need a bot admin; plain `!twitch` (or `!live`) is for everyone. Up to 25 channels can be tracked. The first check after loading (or after adding someone) is silent, so restarting the bot never re-announces a stream that was already running; only *going live* is posted, with the game and title if Twitch reports them. Going offline is not announced. A bad client ID/secret or a Twitch outage shows up in `!twitch` rather than spamming the channel; an expired app token is refreshed automatically.
+
+### Once Human and Icarus lookups
+
+Two small cogs for survival-game communities: `oncehuman` and `icarus`. Add either or both to `cogs` and restart; there's nothing else to set up.
+
+```
+!oh doombringer           Once Human: the best match, its type, rarity and stats, and the link
+!icarus compound bow      Icarus: the best match, its stats, how to craft it, and the link
+!ic longbow               same as !icarus
+```
+
+The answers come live from [Once Human DB](https://www.oncehumandb.com) and [Icarus Database](https://www.icarusdatabase.com) (both by Lucent Enterprises), credited in every reply. Neither site has a public API, so the bot uses their search and entry pages the way a visitor would, and reads the structured data those pages publish for search engines. Both sites allow bots; Once Human DB asks them to stay out of its `/api/` folder, and Roadie never goes there. To be a polite visitor, the bot asks each site at most once a second, says who it is, and remembers answers for an hour, so the same question twice in a row asks the site only once.
+
+An exact name wins; otherwise the bot picks the closest name, preferring weapons, armor and items over recipes and talents, and lists a few other matches you can ask for by name. If a site changes its pages and the bot can't read an entry any more, it still gives the name, the short description from the search results and the link.
 
 ### Fallout 76: nuke codes and Minerva
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.21.0
+- **New `oncehuman` and `icarus` cogs** (opt-in: add either or both to `cogs` and restart; no settings).
+  - **`!oh <name>`** (alias `!oncehuman`): looks up Once Human weapons, armor, mods, attachments, items, deviations, memetics, recipes and more on [Once Human DB](https://www.oncehumandb.com).
+  - **`!icarus <name>`** (alias `!ic`): looks up Icarus items, creatures, recipes, talents and more on [Icarus Database](https://www.icarusdatabase.com), including how to craft it.
+  - Replies give the best match (an exact name first, then the closest, preferring weapons, armor and items), its description, properties and crafting answer, the link, up to four other matches, and a credit line. Long answers are shortened, never the link or the credit.
+  - Live lookups through each site's normal search and entry pages (their JSON-LD structured data), as both sites' robots.txt allow; Once Human DB's `/api/` is never used. At most one request a second per site, a clear User-Agent, and answers cached for an hour. If an entry page can't be read, the search result's name, short line and link are given instead.
+
 ## 0.20.0
 - **New `fallout76` cog** (opt-in: add `"fallout76"` to `cogs` and restart; no settings).
   - **`!nukes [alpha|bravo|charlie]`** (alias `!nuke`, everyone): this week's nuke codes from [NukaCrypt](https://nukacrypt.com) (credited in every reply), with when they change. Fetched once per weekly change and kept in `data/state.json`; after the change the bot retries every 15 minutes (never more often) until NukaCrypt has the new codes, and says so instead of showing last week's. `!nukes refresh` (admins) fetches now.
