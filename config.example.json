@@ -75,6 +75,31 @@
     }
   },
 
+  "events": {
+    "enabled": true,
+    "whoCanAdd": "admins",
+    "remindMinutes": 60,
+    "pokeGoing": true,
+    "maxEvents": 50,
+    "postTo": "channel"
+  },
+
+  "announcements": {
+    "enabled": false,
+    "everyMinutes": 60,
+    "messages": [],
+    "postTo": "channel"
+  },
+
+  "nickfilter": {
+    "enabled": false,
+    "words": [],
+    "action": "warn",
+    "moveChannel": "AFK Room",
+    "graceSeconds": 60,
+    "exemptGroups": []
+  },
+
   "voteskip": {
     "threshold": 0.5
   },

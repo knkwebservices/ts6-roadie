@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.19.0
+- **New `events` cog** (opt-in: add `"events"` to `cogs` and restart): event reminders and rotating announcements, posted in the bot's channel (`events.postTo` / `announcements.postTo` can be `"server"` for the server-wide chat, which the TeamSpeak 6 client has nowhere to show).
+  - **Events:** `!event add Friday 8pm | Nuke run` (also `tomorrow 7:30pm`, `today 9pm`, `10/31 8pm`, `in 2h`, and `weekly Friday 8pm` to repeat), `!events`, `!event <n>`, `!event remove <n>`. Everyone can `!going [n]` / `!notgoing [n]`. A reminder goes out `events.remindMinutes` (default 60) before, and privately to everyone going who is online; at the start the bot posts "Starting now" and pokes everyone going who is online. Weekly events roll on with an empty going list; a start missed while the bot was down isn't announced late. Bot admins add events unless `events.whoCanAdd` is `"everyone"`; the person who added one (or an admin) can remove it.
+  - **Rotating announcements:** `!announce add <text>`, `!announce on`, `!announce every <minutes>`, `!announce now`, `!announce remove <n>` (admins). One message at a time, in turn, every `announcements.everyMinutes` (default 60), only while someone is online.
+- **New `nickfilter` cog** (opt-in): blocked words in nicknames, matched ignoring case and common letter swaps (`N00B` for `noob`). The person is poked and asked to rename within `nickfilter.graceSeconds` (default 60); then, by `!nickfilter action`, the admins are told (**warn**, the default), they're moved to `nickfilter.moveChannel` (**move**), or they're kicked (**kick**). Bot admins and `nickfilter.exemptGroups` are never checked.
+- **`!record reset`** (admins) starts the online record again from who's online now.
+- **The deploy smoke test's client is no longer counted as a person**, so it can't set the online record or show up in `!seen`, the AFK mover, analytics or ranks. It's recognised by its saved identity (`data/smoke-identity.json`) and its nickname.
+- The adapter can now post in the server-wide chat, poke and kick (`sendServer`, `poke`, `kickUser`).
+- CI: `actions/checkout` and `actions/setup-node` updated to v5 (GitHub is retiring the Node 20 versions).
+
 ## 0.18.0
 - **New `grouptools` cog** (opt-in: add `"grouptools"` to `cogs` and restart).
   - **Ranks for time online** (`!ranks`, admins; `!rank [name]`, alias `!hours`, everyone). A ladder of `hours -> server group` (`!ranks add 10 9 Regular`, then `!ranks on`). Time is counted every minute for everyone online, but not while away (`grouptools.ranks.countAway`), in `grouptools.ranks.ignoreChannels` (default "AFK Room"), or for `grouptools.ranks.exemptGroups`. Reaching a rank adds its group, tells the person, and (with `grouptools.ranks.replaceLower`, default on) takes away the lower ranks' groups. `!ranks give <name> <hours>` sets someone's total, for people who were around before ranks. Kept in `data/ranks.json`; a gap longer than five minutes (sleep, a long reconnect) is never counted as time online. Nobody is ever demoted.

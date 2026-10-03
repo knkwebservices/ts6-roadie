@@ -267,3 +267,14 @@ export interface TwitchServiceState {
 export interface TwitchService {
   state(): TwitchServiceState;
 }
+
+// ---- the events cog's service ----------------------------------------------------------------------
+
+export const EVENTS_SERVICE = 'events';
+
+export interface EventsService {
+  /** Events coming up, soonest first. */
+  upcoming(): { id: number; title: string; at: number; weekly: boolean; going: string[] }[];
+  /** Look at the clock now (post due reminders, start due events, post a due announcement) instead of waiting. */
+  check(): Promise<void>;
+}

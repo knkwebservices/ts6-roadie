@@ -3,6 +3,7 @@ import {
   clientMove,
   dialFileTransfer,
   getClientInfo,
+  poke as pokeClient,
   sendTextMessage,
   type DirectorySnapshot,
   type FileUploadInfo,
@@ -26,6 +27,8 @@ export interface TeamspeakAdapterOptions {
   homeChannelPassword: string;
   identity: Identity;
   selfUid: string;
+  /** Clients that are not people (like the deploy smoke test) and are left out of users(). */
+  ignore?: { nicknames?: string[]; uids?: string[] };
   log: Log;
 }
 
@@ -206,7 +209,7 @@ export class TeamspeakAdapter implements TsAdapter {
   users(): TsUser[] {
     const self = this.selfId;
     return this.#snapshot.clients
-      .filter((c) => c.type === CLIENT_TYPE_NORMAL && c.id !== self)
+      .filter((c) => c.type === CLIENT_TYPE_NORMAL && c.id !== self && !this.#ignored(c.nickname, c.uid))
       .map((c) => ({
         id: c.id,
         uid: c.uid,
@@ -217,6 +220,12 @@ export class TeamspeakAdapter implements TsAdapter {
         inputMuted: c.inputMuted,
         outputMuted: c.outputMuted,
       }));
+  }
+
+  #ignored(nickname: string, uid: string): boolean {
+    const ig = this.#o.ignore;
+    if (!ig) return false;
+    return (!!uid && !!ig.uids?.includes(uid)) || !!ig.nicknames?.some((n) => n.toLowerCase() === nickname.toLowerCase());
   }
 
   usersInChannel(channelId: bigint): TsUser[] {
@@ -329,6 +338,20 @@ export class TeamspeakAdapter implements TsAdapter {
   async sendPrivate(userId: number, text: string): Promise<void> {
     const c = this.#need();
     for (const part of chunkText(text)) await sendTextMessage(c, 1, BigInt(userId), part);
+  }
+
+  async sendServer(text: string): Promise<void> {
+    const c = this.#need();
+    for (const part of chunkText(text)) await sendTextMessage(c, 3, 0n, part);
+  }
+
+  async poke(userId: number, text: string): Promise<void> {
+    await pokeClient(this.#need(), userId, text.slice(0, 100));
+  }
+
+  async kickUser(userId: number, reason: string): Promise<void> {
+    // reasonid 5 = kicked from the server
+    await this.#need().execCommand(buildCommand('clientkick', { clid: String(userId), reasonid: '5', reasonmsg: reason.slice(0, 80) }), 10_000);
   }
 
   async sendChannel(text: string): Promise<void> {

@@ -281,9 +281,17 @@ export function createServerToolsCog(bot: BotApi): Cog {
       },
       {
         name: 'record',
-        description: 'The most people ever online at once',
+        description: `The most people ever online at once. ${p}record reset starts it again from who is online now (bot admins)`,
+        usage: `${p}record [reset]`,
         run: async (ctx) => {
           const now = adapter.users().length;
+          if (ctx.args[0]?.toLowerCase() === 'reset') {
+            if (!ctx.isAdmin) return ctx.reply('Only bot admins can reset the record.');
+            record = { count: now, at: Date.now() };
+            bot.state.set('servertools.record', record);
+            void liveTick(true);
+            return ctx.reply(`The record is reset. It starts again from ${now} (online now).`);
+          }
           if (!record.count) return ctx.reply(`No record yet. ${now} ${now === 1 ? 'person is' : 'people are'} online now.`);
           return ctx.reply(`The most people online at once: ${record.count}, on ${when(record.at)}. Right now: ${now}.`);
         },

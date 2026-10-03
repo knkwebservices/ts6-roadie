@@ -98,6 +98,12 @@ export interface TsAdapter {
   reply(to: IncomingMessage, text: string): Promise<void>;
   sendChannel(text: string): Promise<void>;
   sendPrivate(userId: number, text: string): Promise<void>;
+  /** Post in the server-wide chat, which everyone online can read wherever they are. */
+  sendServer(text: string): Promise<void>;
+  /** Poke someone: a pop-up message (TeamSpeak keeps pokes short, about 100 characters). */
+  poke(userId: number, text: string): Promise<void>;
+  /** Kick someone off the server with a reason (needs the server's kick permission). */
+  kickUser(userId: number, reason: string): Promise<void>;
   /** Send one Opus frame. An empty frame marks the end of a transmission. */
   sendVoice(frame: Uint8Array, codec: number): void;
   /** Redeem a privilege key so the bot receives its server group. */

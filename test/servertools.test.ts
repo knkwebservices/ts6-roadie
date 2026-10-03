@@ -240,3 +240,19 @@ test('!livename renames a channel from its template, keeps it up to date, and re
     h.cleanup();
   }
 });
+
+test('!record reset (bot admins) starts the record again from who is online now', async () => {
+  const h = await makeRig();
+  try {
+    const admin = h.adapter.addUser(2, 'Admin', CH.home, 'uid-Admin');
+    const ann = join2(h, 10, 'Ann', CH.a);
+    join2(h, 11, 'Bob', CH.b);
+    assert.match(await say(h, admin, '!record'), /at once: 3/);
+    leave(h, ann);
+    assert.match(await say(h, ann, '!record reset'), /Only bot admins/);
+    assert.match(await say(h, admin, '!record reset'), /starts again from 2/);
+    assert.match(await say(h, admin, '!record'), /at once: 2, on .+ Right now: 2\./);
+  } finally {
+    h.cleanup();
+  }
+});

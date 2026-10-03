@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TeamspeakAdapter } from './adapter/teamspeak.js';
-import { loadOrCreateIdentity } from './adapter/identity.js';
+import { loadOrCreateIdentity, smokeNickname, smokeUid } from './adapter/identity.js';
 import { ConfigError, loadConfig } from './config.js';
 import { Bot } from './core/bot.js';
 import { createLogger } from './logger.js';
@@ -38,6 +38,8 @@ async function main(): Promise<void> {
     homeChannelPassword: config.server.homeChannelPassword,
     identity,
     selfUid: uid,
+    // the deploy script's smoke test connects briefly as a second client: it is not a person
+    ignore: { nicknames: [smokeNickname(config.server.nickname)], uids: [smokeUid(dataDir)].filter((u): u is string => !!u) },
     log: log.child('adapter'),
   });
 

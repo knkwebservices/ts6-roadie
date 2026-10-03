@@ -196,6 +196,47 @@ export interface Config {
       groups: { group: number; allowed: string[] }[];
     };
   };
+  events: {
+    /** Event reminders: !event add Friday 8pm | Nuke run. */
+    enabled: boolean;
+    /** Who may add events: bot admins only, or everyone. */
+    whoCanAdd: 'admins' | 'everyone';
+    /** Post a reminder this many minutes before an event starts (0 = no early reminder). */
+    remindMinutes: number;
+    /** Poke the people who said !going when the event starts. */
+    pokeGoing: boolean;
+    /** Most events kept at once. */
+    maxEvents: number;
+    /**
+     * Where reminders are posted: "channel" (the bot's channel) or "server" (the server-wide chat).
+     * The TeamSpeak 6 client has nowhere to read server-wide chat, so "channel" is the default.
+     */
+    postTo: 'channel' | 'server';
+  };
+  announcements: {
+    /** Messages posted in the server chat, one at a time, in turn. */
+    enabled: boolean;
+    /** Minutes between messages. */
+    everyMinutes: number;
+    /** The messages. Change them with !announce. */
+    messages: string[];
+    /** Where they are posted: "channel" (the bot's channel) or "server" (the server-wide chat). */
+    postTo: 'channel' | 'server';
+  };
+  nickfilter: {
+    /** Watch nicknames for blocked words. */
+    enabled: boolean;
+    /** Words not allowed in nicknames (matched ignoring case, and with common letter swaps like 4 for a). */
+    words: string[];
+    /** What happens if they don't rename in time: "warn" only, "move" them to a channel, or "kick" them. */
+    action: 'warn' | 'move' | 'kick';
+    /** Channel to move them to, for action "move". */
+    moveChannel: string;
+    /** Seconds they get to change their nickname after the warning. */
+    graceSeconds: number;
+    /** Server groups (by ID) never checked. Bot admins never are. */
+    exemptGroups: number[];
+  };
   voteskip: {
     /** A skip needs MORE than this fraction of the people listening (0.5 = a majority). */
     threshold: number;
@@ -300,6 +341,9 @@ export const DEFAULT_CONFIG: Config = {
     ranks: { enabled: false, rules: [], replaceLower: true, countAway: false, ignoreChannels: ['AFK Room'], exemptGroups: [] },
     protect: { enabled: false, mode: 'warn', groups: [] },
   },
+  events: { enabled: true, whoCanAdd: 'admins', remindMinutes: 60, pokeGoing: true, maxEvents: 50, postTo: 'channel' },
+  announcements: { enabled: false, everyMinutes: 60, messages: [], postTo: 'channel' },
+  nickfilter: { enabled: false, words: [], action: 'warn', moveChannel: 'AFK Room', graceSeconds: 60, exemptGroups: [] },
   follow: { idleReturnSeconds: 120, aloneLeaveSeconds: 60 },
   audio: {
     defaultVolume: 50,
@@ -527,6 +571,27 @@ export function validateConfig(c: Config): Config {
         pr.groups.every((x) => isObject(x) && Number.isInteger(x.group) && (x.group as number) > 0 && Array.isArray(x.allowed) && x.allowed.every((u) => typeof u === 'string' && u.trim() !== '')),
       'grouptools.protect.groups must be a list of { "group": <server-group ID>, "allowed": ["<unique ID>", ...] }',
     );
+  }
+  {
+    const e = c.events;
+    need(isObject(e) && typeof e.enabled === 'boolean', 'events.enabled must be true or false');
+    need(isObject(e) && (e.whoCanAdd === 'admins' || e.whoCanAdd === 'everyone'), 'events.whoCanAdd must be "admins" or "everyone"');
+    need(isObject(e) && Number.isInteger(e.remindMinutes) && e.remindMinutes >= 0 && e.remindMinutes <= 10_080, 'events.remindMinutes must be a whole number from 0 to 10080');
+    need(isObject(e) && typeof e.pokeGoing === 'boolean', 'events.pokeGoing must be true or false');
+    need(isObject(e) && Number.isInteger(e.maxEvents) && e.maxEvents >= 1 && e.maxEvents <= 500, 'events.maxEvents must be a whole number from 1 to 500');
+    need(isObject(e) && (e.postTo === 'channel' || e.postTo === 'server'), 'events.postTo must be "channel" or "server"');
+    const a = c.announcements;
+    need(isObject(a) && typeof a.enabled === 'boolean', 'announcements.enabled must be true or false');
+    need(isObject(a) && typeof a.everyMinutes === 'number' && a.everyMinutes >= 5 && a.everyMinutes <= 1440, 'announcements.everyMinutes must be from 5 to 1440');
+    need(isObject(a) && Array.isArray(a.messages) && a.messages.length <= 50 && a.messages.every((m) => typeof m === 'string' && m.trim() !== '' && m.length <= 500), 'announcements.messages must be a list (up to 50) of messages, each 1 to 500 characters');
+    need(isObject(a) && (a.postTo === 'channel' || a.postTo === 'server'), 'announcements.postTo must be "channel" or "server"');
+    const n = c.nickfilter;
+    need(isObject(n) && typeof n.enabled === 'boolean', 'nickfilter.enabled must be true or false');
+    need(isObject(n) && Array.isArray(n.words) && n.words.every((w) => typeof w === 'string' && w.trim().length >= 2 && w.length <= 32), 'nickfilter.words must be a list of words, each 2 to 32 characters');
+    need(isObject(n) && (n.action === 'warn' || n.action === 'move' || n.action === 'kick'), 'nickfilter.action must be "warn", "move" or "kick"');
+    need(isObject(n) && typeof n.moveChannel === 'string' && n.moveChannel.length <= 100, 'nickfilter.moveChannel must be a channel name');
+    need(isObject(n) && typeof n.graceSeconds === 'number' && n.graceSeconds >= 1 && n.graceSeconds <= 3600, 'nickfilter.graceSeconds must be from 1 to 3600');
+    need(isObject(n) && Array.isArray(n.exemptGroups) && n.exemptGroups.every((g) => Number.isInteger(g) && g >= 0), 'nickfilter.exemptGroups must be a list of server-group ID numbers');
   }
   need(typeof c.voteskip.threshold === 'number' && c.voteskip.threshold >= 0 && c.voteskip.threshold < 1, 'voteskip.threshold must be a number from 0 up to (not including) 1');
   need(isObject(c.permissions.commands), 'permissions.commands must be an object of command name -> rule');

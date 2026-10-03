@@ -41,3 +41,18 @@ export async function loadOrCreateIdentity(file: string, level: number, log: Log
   }
   return { identity, uid };
 }
+
+/** The nickname the deploy smoke test connects with (see smoke.ts). */
+export function smokeNickname(botNickname: string): string {
+  return `${botNickname.slice(0, 22)}-smoke`;
+}
+
+/** The smoke test's unique ID, if it has ever run with this data folder (so the bot can ignore that client). */
+export function smokeUid(dataDir: string): string | undefined {
+  try {
+    const saved = JSON.parse(readFileSync(`${dataDir}/smoke-identity.json`, 'utf8')) as { uid?: unknown };
+    return typeof saved.uid === 'string' && saved.uid ? saved.uid : undefined;
+  } catch {
+    return undefined;
+  }
+}

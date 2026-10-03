@@ -13,7 +13,7 @@
 import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { TeamspeakAdapter } from './adapter/teamspeak.js';
-import { loadOrCreateIdentity } from './adapter/identity.js';
+import { loadOrCreateIdentity, smokeNickname } from './adapter/identity.js';
 import { loadConfig } from './config.js';
 import { createLogger } from './logger.js';
 import { createOpusEncoder } from './cogs/audio/opus.js';
@@ -32,7 +32,7 @@ async function main(): Promise<void> {
 
   log.info(`smoke test: bot ${BOT_VERSION}, TS library ${tsLibVersion()}`);
   const { identity, uid } = await loadOrCreateIdentity(join(dataDir, 'smoke-identity.json'), config.server.identityLevel, log);
-  const nickname = `${config.server.nickname.slice(0, 22)}-smoke`;
+  const nickname = smokeNickname(config.server.nickname);
 
   const adapter = new TeamspeakAdapter({
     address: config.server.address,

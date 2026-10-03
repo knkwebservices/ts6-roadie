@@ -18,7 +18,7 @@ Read how it was built and what it does on a real community server: [TS6 Roadie, 
 
 | Verified on a real TS6 server | Verified by automated tests only | Not verified |
 | --- | --- | --- |
-| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure, starting automatically after a reboot, uploading the bot's avatar (`!avatar`), playlists (save, load, show, following the caller), updating a live Windows service with `deploy.mjs`, playlist editing, vote skip, SoundCloud and Bandcamp links, your server reporting users' server groups (`!whoami`), Spotify song links (and the album message), radio song titles from a real station | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), permission rules by server group, the web dashboard (real HTTP requests plus the real page driven in a simulated browser), install/update/roll-back script (against a fake service), Steam status tracking (against a fake Steam API), server analytics (sampling, uptime tracking, song-history aggregation), Twitch live alerts (against a fake Twitch API, including app-token refresh), the support notifier, live channel names, `!seen` and the online record, temporary rooms, ranks for time online, protected server groups (against a fake server) | Redeeming a privilege key on first connect (`privilegeKey`), the web dashboard in a real browser, Linux service setup, Steam status tracking against the real Steam API, Twitch live alerts against the real Twitch API, renaming channels on a real server (live channel names), temporary rooms on a real server (creating the channel, the owner's channel group, the server deleting an empty room), adding and removing server groups on a real server (ranks, group protection) |
+| Connecting and the handshake, chat commands, admin checks, radio, YouTube search + playback, follow-the-caller, returning to the home channel when idle, use by a second person, running as a Windows service, restart on failure, starting automatically after a reboot, uploading the bot's avatar (`!avatar`), playlists (save, load, show, following the caller), updating a live Windows service with `deploy.mjs`, playlist editing, vote skip, SoundCloud and Bandcamp links, your server reporting users' server groups (`!whoami`), Spotify song links (and the album message), radio song titles from a real station | Command handling, cog load/unload/reload, config validation and migrations, the audio pipeline (ffmpeg to Opus to paced 20 ms packets), permission rules by server group, the web dashboard (real HTTP requests plus the real page driven in a simulated browser), install/update/roll-back script (against a fake service), Steam status tracking (against a fake Steam API), server analytics (sampling, uptime tracking, song-history aggregation), Twitch live alerts (against a fake Twitch API, including app-token refresh), the support notifier, live channel names, `!seen` and the online record, temporary rooms, ranks for time online, protected server groups, event reminders, rotating announcements, the nickname filter (against a fake server) | Redeeming a privilege key on first connect (`privilegeKey`), the web dashboard in a real browser, Linux service setup, Steam status tracking against the real Steam API, Twitch live alerts against the real Twitch API, renaming channels on a real server (live channel names), temporary rooms on a real server (creating the channel, the owner's channel group, the server deleting an empty room), adding and removing server groups on a real server (ranks, group protection), server-wide chat, pokes and kicks on a real server (events, announcements, nickname filter) |
 
 The TeamSpeak protocol code is a third-party library ([`@echosixhiya/teamspeak-client`](https://github.com/EchoSixHIYA/teamspeak-js), MIT). It is young. All use of it lives in one file, `src/adapter/teamspeak.ts`, behind an interface (`src/adapter/types.ts`). If it ever breaks against a server update, that file is the only place to change.
 
@@ -96,6 +96,7 @@ The bot appears in the client list under its nickname. It needs a server group t
 - **See users in other channels** (`i_channel_subscribe_power`). The bot subscribes to all channels on connect so it knows where the caller is. If that is refused it falls back to asking the server per user.
 - Optional: `b_client_ignore_antiflood`, so long queue listings never trip flood protection.
 - Only for [temporary rooms](#temporary-rooms): creating temporary channels (`b_channel_create_temporary`, and `b_channel_create_child` to make them as sub-channels), moving people, and assigning channel groups (`i_group_member_add_power` high enough for the owner's channel group).
+- Only for the [nickname filter](#nickname-filter): moving people (move mode) or kicking them (`i_client_kick_from_server_power`, kick mode).
 - Only for [ranks and protected groups](#ranks-and-protected-groups): adding and removing people from server groups (`i_group_member_add_power` and `i_group_member_remove_power` at least as high as those groups' needed powers).
 - Only for [live channel names](#server-tools-support-notifier-live-channel-names-and-seen): changing channel names (`b_channel_modify_name`).
 
@@ -130,7 +131,9 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!steam [check\|add\|remove\|interval]` | Plain `!steam` (everyone) lists tracked players and what they're playing. The rest are admin-only. See [Steam status](#steam-status). |
 | `!analytics` (`!stats`) `[hours\|channels\|songs\|on\|off\|interval\|reset]` | Plain `!analytics` (everyone) shows a summary. The rest are admin-only. See [Server analytics](#server-analytics). |
 | `!twitch` (`!live`) `[check\|add\|remove\|interval]` | Plain `!twitch` (everyone) lists tracked channels and who's live. The rest are admin-only. See [Twitch live alerts](#twitch-live-alerts). |
-| `!seen <name>` (`!lastseen`), `!record` | Everyone. When someone was last online, and the most people ever online at once. See [Server tools](#server-tools-support-notifier-live-channel-names-and-seen). |
+| `!seen <name>` (`!lastseen`), `!record` | Everyone (`!record reset` is for bot admins). When someone was last online, and the most people ever online at once. See [Server tools](#server-tools-support-notifier-live-channel-names-and-seen). |
+| `!events`, `!event <number>`, `!going [number]`, `!notgoing [number]` | Everyone. Events coming up, and signing up for a poke when one starts. `!event add` and `!event remove` are for bot admins by default. See [Events and announcements](#events-and-announcements). |
+| `!announce`, `!nickfilter` | Admins only. Rotating announcements and the nickname filter. See [Events and announcements](#events-and-announcements) and [Nickname filter](#nickname-filter). |
 | `!room` (`!myroom`), `!rooms` | `!room` (everyone) takes you to your own temporary room. `!rooms` (admins) sets them up. See [Temporary rooms](#temporary-rooms). |
 | `!rank [name]` (`!hours`), `!ranks`, `!protect` | `!rank` (everyone) shows time online and rank. `!ranks` and `!protect` are admin-only. See [Ranks and protected groups](#ranks-and-protected-groups). |
 | `!notify`, `!livename` | Admins only. The support notifier and live channel names. See [Server tools](#server-tools-support-notifier-live-channel-names-and-seen). |
@@ -344,6 +347,46 @@ The `twitch` cog posts in the channel when someone you're tracking goes live on 
 ```
 
 Adding, removing, turning it on/off and setting the interval need a bot admin; plain `!twitch` (or `!live`) is for everyone. Up to 25 channels can be tracked. The first check after loading (or after adding someone) is silent, so restarting the bot never re-announces a stream that was already running; only *going live* is posted, with the game and title if Twitch reports them. Going offline is not announced. A bad client ID/secret or a Twitch outage shows up in `!twitch` rather than spamming the channel; an expired app token is refreshed automatically.
+
+### Events and announcements
+
+The `events` cog posts in the **bot's channel** (its home channel when it's idle). Add `"events"` to `cogs` in `config.json` and restart. The TeamSpeak 6 client has nowhere to read the server-wide chat, so that's not the default; set `events.postTo` / `announcements.postTo` to `"server"` if your users' clients do show it.
+
+**Events.** Bot admins add them (set `events.whoCanAdd` to `"everyone"` to let anyone):
+
+```
+!event add Friday 8pm | Nuke run          (also: tomorrow 7:30pm, today 9pm, 10/31 8pm, in 2h)
+!event add weekly Friday 8pm | Nuke run   (repeats every week)
+!events                                   what's coming up, with numbers
+!event 2                                  details and who's going
+!going 2 / !notgoing 2                    sign up for a poke when it starts (no number needed if there's only one event)
+!event remove 2                           (the person who added it, or a bot admin)
+```
+
+`events.remindMinutes` (default 60) before the start, the bot posts a reminder, and also sends it privately to everyone who said `!going` and is online, wherever they are. At the start it posts "Starting now" and **pokes** everyone who said `!going` and is online (`events.pokeGoing`). A one-off event is then removed; a weekly one moves on to the next week with an empty going list. Times are in the bot machine's own time zone. If the bot was down when an event started, it isn't announced late. Events are kept in `state.json`.
+
+**Rotating announcements** (`!announce`, admins). A list of messages posted in the bot's channel one at a time, in turn, every `announcements.everyMinutes` (default 60), and only while someone is online:
+
+```
+!announce add Visit our website: https://tgscgaming.com
+!announce add Need help? Join "Support Room".
+!announce on / !announce off
+!announce every 90       minutes between messages (5-1440)
+!announce now            post the next one straight away
+!announce remove 2
+```
+
+### Nickname filter
+
+The `nickfilter` cog keeps blocked words out of nicknames. Add `"nickfilter"` to `cogs`, restart, add words with `!nickfilter add <word>` and switch it on with `!nickfilter on` (admins only).
+
+Words are matched ignoring case and common letter swaps, so blocking `noob` also catches `N00B` and `n.o.o.b`. Choose words with care: a short word also matches inside longer, harmless names. Someone whose nickname has a blocked word gets a poke and a private message asking them to rename within `nickfilter.graceSeconds` (default 60). If they don't:
+
+- **warn** (the default): the online bot admins are told.
+- **move**: they're moved to `nickfilter.moveChannel` (default "AFK Room"), and moved back there if they leave it with the same name. `!nickfilter channel <name>` changes it.
+- **kick**: they're kicked from the server ("Nickname not allowed on this server").
+
+Change it with `!nickfilter action warn|move|kick`. Renaming clears everything, someone who reconnects gets a fresh warning, and bot admins and `nickfilter.exemptGroups` are never checked.
 
 ### Ranks and protected groups
 

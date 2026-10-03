@@ -25,7 +25,9 @@ export class FakeAdapter implements TsAdapter {
     { id: CH.staff, name: 'Staff Room', parentId: 0n },
   ];
   userList: TsUser[] = [];
-  sent: { kind: 'channel' | 'private'; to?: number; text: string }[] = [];
+  sent: { kind: 'channel' | 'private' | 'server' | 'poke'; to?: number; text: string }[] = [];
+  kicks: { id: number; reason: string }[] = [];
+  failKick: Error | undefined;
   voice: { frame: Uint8Array; codec: number }[] = [];
   moves: bigint[] = [];
   failMove: Error | undefined;
@@ -165,6 +167,19 @@ export class FakeAdapter implements TsAdapter {
   }
   async sendPrivate(userId: number, text: string) {
     this.sent.push({ kind: 'private', to: userId, text });
+  }
+  async sendServer(text: string) {
+    this.sent.push({ kind: 'server', text });
+  }
+  async poke(userId: number, text: string) {
+    this.sent.push({ kind: 'poke', to: userId, text: text.slice(0, 100) });
+  }
+  async kickUser(id: number, reason: string) {
+    if (this.failKick) throw this.failKick;
+    if (!this.userList.some((u) => u.id === id)) throw new Error('invalid clientID');
+    this.kicks.push({ id, reason });
+    this.userList = this.userList.filter((u) => u.id !== id);
+    this.events.emit('directory');
   }
   sendVoice(frame: Uint8Array, codec: number) {
     this.voice.push({ frame, codec });
