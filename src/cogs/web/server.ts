@@ -50,6 +50,8 @@ export interface WebDeps {
   history?(): unknown[];
   /** The public widget. Everything under /widget is a 404 while it is switched off. */
   widget?: { enabled(): boolean; origins: string[]; data(): unknown };
+  /** The stats banner at /banner.png. A 404 while it is switched off. */
+  banner?: { enabled(): boolean; png(): Buffer };
   sessionTtlMs: number;
   log: Log;
 }
@@ -68,7 +70,7 @@ const SECURITY_HEADERS: Record<string, string> = {
   'Cache-Control': 'no-store',
 };
 
-function send(res: http.ServerResponse, status: number, body: string, type: string, extra: Record<string, string> = {}): void {
+function send(res: http.ServerResponse, status: number, body: string | Buffer, type: string, extra: Record<string, string> = {}): void {
   // an empty value in `extra` means "leave that header out"
   const headers = Object.fromEntries(Object.entries({ 'Content-Type': type, ...SECURITY_HEADERS, ...extra }).filter(([, v]) => v !== ''));
   res.writeHead(status, headers);
@@ -210,6 +212,17 @@ export async function startWebServer(opts: { host: string; port: number; publicU
     return send(res, 200, WIDGET_HTML, 'text/html; charset=utf-8', { ...headers, 'X-Frame-Options': w.origins.length ? '' : 'DENY' });
   }
 
+  /** /banner.png: the stats banner, for the TeamSpeak host banner. Public and read-only, only while it is on. */
+  function handleBanner(req: http.IncomingMessage, res: http.ServerResponse): void {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: 'Method not allowed.' }, { Allow: 'GET' });
+    const b = deps.banner;
+    if (!b || !b.enabled()) return json(res, 404, { error: 'Not found.' });
+    if (!allow(widgetTimes, WIDGET_LIMIT, clientKey(req))) return json(res, 429, { error: 'Slow down a little.' });
+    if (widgetTimes.size > 5000) widgetTimes.clear();
+    // TeamSpeak clients fetch it themselves on their refresh timer, so a short cache is fine
+    return send(res, 200, b.png(), 'image/png', { 'X-Robots-Tag': 'noindex', 'Cache-Control': 'public, max-age=30', 'X-Frame-Options': '' });
+  }
+
   async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     // 1. Only answer requests addressed to this machine by name or number. This is what stops a
     //    malicious web page from reaching the dashboard through your browser ("DNS rebinding").
@@ -217,6 +230,7 @@ export async function startWebServer(opts: { host: string; port: number; publicU
     if (!allowedHosts().has(host)) return json(res, 403, { error: 'Not allowed.' });
     // The public widget is open to the world, so it has its own rules (below) instead of the same-origin check.
     if (req.url && /^\/widget(\.json|\.js|\.css)?(\?|$)/.test(req.url)) return handleWidget(req, res, host);
+    if (req.url && /^\/banner\.png(\?|$)/.test(req.url)) return handleBanner(req, res);
 
     // 2. A browser tells us which site a request came from; refuse any site that is not this one.
     const origin = req.headers.origin;

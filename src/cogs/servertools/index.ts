@@ -56,6 +56,9 @@ export function createServerToolsCog(bot: BotApi): Cog {
   let notify = bot.state.get<NotifySettings>('servertools.notify', { enabled: cfg.notify.enabled, rules: cfg.notify.rules, message: cfg.notify.message });
   let live = bot.state.get<LiveSettings>('servertools.liveNames', { enabled: cfg.liveNames.enabled, channels: cfg.liveNames.channels });
   let record = bot.state.get<OnlineRecord>('servertools.record', { count: 0, at: 0 });
+  let staffGroups = bot.state.get<number[]>('servertools.staffGroups', cfg.staffGroups);
+  /** Bot admins and members of the staff groups who are online now. */
+  const staffOnline = (users: TsUser[] = adapter.users()): TsUser[] => users.filter((u) => bot.isAdmin(u.uid) || u.groups.some((g) => staffGroups.includes(g)));
 
   const seen = new SeenStore(join(bot.dataDir, 'seen.json'));
   const liveTrack = new Map<number, LiveTrack>();
@@ -163,7 +166,8 @@ export function createServerToolsCog(bot: BotApi): Cog {
         log.debug(`could not read what is playing: ${errMessage(e)}`);
       }
     }
-    return { online: adapter.users().length, record: record.count, song };
+    const staff = staffOnline();
+    return { online: adapter.users().length, record: record.count, song, staff: staff.length, staffNames: staff.map((u) => u.name).join(', ') };
   }
 
   /** Rename the live channels whose name is out of date. `force` ignores the minimum wait (used by !livename now). */
@@ -280,6 +284,35 @@ export function createServerToolsCog(bot: BotApi): Cog {
         },
       },
       {
+        name: 'staff',
+        aliases: ['admins'],
+        description: `Which staff are online right now. Bot admins: ${p}staff add <group ID> / ${p}staff remove <group ID> chooses which server groups count`,
+        usage: `${p}staff [add <group ID>|remove <group ID>|groups]`,
+        run: async (ctx) => {
+          const sub = ctx.args[0]?.toLowerCase();
+          if (sub === 'add' || sub === 'remove' || sub === 'groups') {
+            if (!ctx.isAdmin) return ctx.reply('Only bot admins can change who counts as staff.');
+            if (sub === 'groups') return ctx.reply(`Staff are bot admins${staffGroups.length ? ` and server groups ${staffGroups.join(', ')}` : ` (no server groups yet: ${p}staff add <group ID>)`}.`);
+            const g = Number(ctx.args[1]);
+            if (!Number.isInteger(g) || g <= 0) return ctx.reply(`Usage: ${p}staff ${sub} <server group ID>, like ${p}staff ${sub} 6`);
+            if (sub === 'add') {
+              if (staffGroups.includes(g)) return ctx.reply(`Group ${g} already counts as staff.`);
+              if (staffGroups.length >= 20) return ctx.reply('That is a lot of staff groups. Remove one first.');
+              staffGroups = [...staffGroups, g];
+            } else {
+              if (!staffGroups.includes(g)) return ctx.reply(`Group ${g} isn't a staff group. ${p}staff groups lists them.`);
+              staffGroups = staffGroups.filter((x) => x !== g);
+            }
+            bot.state.set('servertools.staffGroups', staffGroups);
+            void liveTick(true);
+            return ctx.reply(sub === 'add' ? `Members of server group ${g} now count as staff.` : `Server group ${g} no longer counts as staff.`);
+          }
+          const on = staffOnline();
+          if (!on.length) return ctx.reply('No staff are online right now. Try again later, or leave a message in the support channel.');
+          return ctx.reply(`Staff online (${on.length}): ${on.map((u) => `${u.name} (${channelName(u.channelId)})`).join(', ')}`);
+        },
+      },
+      {
         name: 'record',
         description: `The most people ever online at once. ${p}record reset starts it again from who is online now (bot admins)`,
         usage: `${p}record [reset]`,
@@ -375,7 +408,7 @@ export function createServerToolsCog(bot: BotApi): Cog {
             const lines = [
               `Live channel names are ${live.enabled ? `on (each updated at most every ${cfg.liveNames.updateSeconds}s)` : 'off'}.`,
               live.channels.length ? live.channels.map(liveLine).join('\n') : `No channels yet. Add one with ${p}livename add <channel> | [cspacer]Online: {online}`,
-              `You can use {online} (people online now), {record} (most ever at once) and {song} (what I'm playing). TeamSpeak allows ${MAX_CHANNEL_NAME} characters.`,
+              `You can use {online} (people online now), {record} (most ever at once), {song} (what I'm playing), {staff} (staff online) and {staffnames} (their names). TeamSpeak allows ${MAX_CHANNEL_NAME} characters.`,
             ];
             return ctx.reply(lines.join('\n'));
           }
@@ -397,7 +430,7 @@ export function createServerToolsCog(bot: BotApi): Cog {
             if (!ch) return ctx.reply(`I cannot find a channel called "${body.slice(0, bar).trim()}".`);
             const template = body.slice(bar + 1).trim();
             if (!template || template.length > 100) return ctx.reply('Give the name to use after the "|", up to 100 characters.');
-            if (!/\{(online|record|song)\}/i.test(template)) return ctx.reply('Put at least one of {online}, {record} or {song} in it, or there is nothing to keep up to date.');
+            if (!/\{(online|record|song|staff|staffnames)\}/i.test(template)) return ctx.reply('Put at least one of {online}, {record}, {song}, {staff} or {staffnames} in it, or there is nothing to keep up to date.');
             const others = live.channels.filter((e) => e.channelId !== Number(ch.id));
             if (others.length >= MAX_LIVE) return ctx.reply(`That's the most I keep up to date (${MAX_LIVE}). Remove one first.`);
             saveLive({ ...live, channels: [...others, { channelId: Number(ch.id), template }] });

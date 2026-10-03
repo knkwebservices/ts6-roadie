@@ -138,6 +138,9 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!announce`, `!nickfilter` | Admins only. Rotating announcements and the nickname filter. See [Events and announcements](#events-and-announcements) and [Nickname filter](#nickname-filter). |
 | `!room` (`!myroom`), `!rooms` | `!room` (everyone) takes you to your own temporary room. `!rooms` (admins) sets them up. See [Temporary rooms](#temporary-rooms). |
 | `!rank [name]` (`!hours`), `!ranks`, `!protect` | `!rank` (everyone) shows time online and rank. `!ranks` and `!protect` are admin-only. See [Ranks and protected groups](#ranks-and-protected-groups). |
+| `!staff` (`!admins`) | Everyone. Which staff are online right now, and where. `!staff add`/`remove <group ID>` (bot admins) chooses which server groups count. See [Staff online](#staff-online). |
+| `!game <name>` (`!role`), `!games` | Everyone. Give yourself a game's server group (like "Fallout 76 Player"), or take it away. Admins set them up. See [Game groups](#game-groups). |
+| `!floodguard`, `!banner` | Admins only. The channel-hopping and chat-spam guard, and the live stats banner. See [Flood guard](#flood-guard) and [Stats banner](#stats-banner). |
 | `!notify`, `!livename` | Admins only. The support notifier and live channel names. See [Server tools](#server-tools-support-notifier-live-channel-names-and-seen). |
 | `!hideme [on\|off]` (`!hide`) | Leave your name off the public widget (you still count in the total). |
 | `!tools`, `!ytcheck`, `!ytupdate` | Admins only. Tool versions, a YouTube playback test, and a yt-dlp update. See [YouTube](#youtube). |
@@ -477,6 +480,48 @@ Someone who already has a room and joins again is just taken back to it, and `!r
 ```
 
 Some servers move whoever creates a channel into it; the bot then goes straight back to where it was, after the owner is in (so the room is never left empty). The bot's server group needs to be allowed to create temporary (and child) channels, move people, and assign the owner's channel group; if something is refused, the person is told why and it goes in the log.
+
+### Game groups
+
+The `gamegroups` cog lets people give themselves server groups an admin has offered, like "Fallout 76 Player", so everyone can see who plays what. Add `"gamegroups"` to `cogs` and restart. Make the server groups in TeamSpeak first, and make sure the bot's group is allowed to add people to them (its "group member add power" must be at least the group's "needed member add power", and the same for removing).
+
+```
+!game add 14 Fallout 76                     admins: offer server group 14 as "Fallout 76"
+!game channel Fallout 76 | Get FO76 role    admins: joining that channel toggles it too
+!games                                      everyone: what's on offer, with [x] on the ones you have
+!game fallout 76                            everyone: join it, or leave it if you're already in
+!game remove Fallout 76                     admins: stop offering it (nobody loses the group)
+!game off / !game on                        admins: switch the whole thing off or on
+```
+
+Names match loosely (`!game fallout76`, `!game once` for Once Human). Joining a game's channel toggles the group, sends a private message, and (with `gamegroups.moveBack`, on by default) moves the person straight back to where they were. A person's groups are asked from the server each time, because the TeamSpeak 6 client list can be out of date about group changes. One toggle per person and game every five seconds, so a double click doesn't undo itself. Only offer harmless groups: anyone can join any game group on the list.
+
+### Staff online
+
+`!staff` (or `!admins`, everyone) lists the staff online right now and which channel they're in. Staff are bot admins plus the server groups an admin adds with `!staff add <group ID>` (`!staff remove`, `!staff groups`; or `servertools.staffGroups` in `config.json`). It's part of the `servertools` cog, and so are two new [live channel name](#server-tools-support-notifier-live-channel-names-and-seen) placeholders: `{staff}` (how many are online) and `{staffnames}` (their names, shortened with "..." to fit the 40 characters), for example `!livename add Staff | [cspacer]Staff on: {staffnames}`.
+
+### Flood guard
+
+The `floodguard` cog catches channel hopping and chat spam. It's off by default: add `"floodguard"` to `cogs`, restart, and `!floodguard on`.
+
+- **Hopping:** `floodguard.hops` (6) channel switches within `floodguard.hopSeconds` (30).
+- **Spam:** `floodguard.messages` (6) chat messages the bot can see within `floodguard.messageSeconds` (10). TeamSpeak only shows the bot private messages and chat in its own channel, so that's what it can watch.
+- **The first time,** the person is poked and warned, and the bot ignores their commands for `floodguard.quietSeconds` (60).
+- **Again within 10 minutes,** `!floodguard action` decides: `warn` (the default: online bot admins are told), `move` (to `floodguard.moveChannel`, "AFK Room") or `kick`. Admins are told either way.
+
+Bot admins and `floodguard.exemptGroups` are never checked. Plain `!floodguard` shows the settings and how many floods it has caught.
+
+### Stats banner
+
+The web dashboard can serve a live banner image at `/banner.png`, 800 x 160: your community's name, how many are online, the online record, what's playing, and the time. It's meant for the TeamSpeak **host banner** (in the server settings, under the host banner image address, with a refresh interval of 60 seconds), and works on a website too. It needs the `web` cog and a public address (`web.publicUrl`), since TeamSpeak clients fetch it themselves.
+
+```
+!banner on                              admins: switch it on (it's a 404 while off)
+!banner title TGSC Gaming Community     the big line at the top (default: the bot's nickname)
+!banner                                 shows the address and settings
+```
+
+It's drawn by the bot itself, with no image libraries and no uploads to TeamSpeak (so the TS6 upload bug doesn't matter), and redrawn at most every 30 seconds however many people look. Times use the bot computer's time zone. Like the widget, it's public, read-only, and limited to 60 requests a minute per visitor.
 
 ### Server tools: support notifier, live channel names and !seen
 

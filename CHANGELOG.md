@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.22.0
+- **New `gamegroups` cog** (opt-in): `!game <name>` (aliases `!role`; `!games` lists them) gives people a server group an admin has offered, like "Fallout 76 Player", or takes it away again. Admins: `!game add <group ID> <name>`, `!game remove <name>`, `!game channel <name> | <channel>` (joining that channel toggles it, and with `gamegroups.moveBack` the person is moved back), `!game on`/`off`. Groups are checked with the server, not the (sometimes stale) client list; a refused change is explained; one toggle per person and game every 5 seconds.
+- **Staff online** (in `servertools`): `!staff` (alias `!admins`) lists staff online and where. Staff are bot admins plus `servertools.staffGroups` / `!staff add <group ID>`. Live channel names get `{staff}` and `{staffnames}` (shortened to fit).
+- **New `floodguard` cog** (opt-in, off until `!floodguard on`): channel hopping (`floodguard.hops` within `hopSeconds`, default 6 in 30 s) and chat spam (`messages` within `messageSeconds`, default 6 in 10 s, of the chat the bot can see). First time: a poke, a warning, and commands ignored for `quietSeconds` (60). Again within 10 minutes: `!floodguard action warn` (tell admins, the default), `move` (to `moveChannel`) or `kick`. Bot admins and `exemptGroups` are never checked.
+- **Stats banner** (in `web`): `/banner.png`, an 800 x 160 PNG with the community name, online count, record, now playing and the time, for the TeamSpeak host banner. `!banner on|off|title <text>` (admins). Drawn by the bot itself (a small built-in DejaVu Sans Bold bitmap font and PNG encoder, no new dependencies), cached 30 seconds, public and rate-limited like the widget, a 404 while off.
+- The bot core can now ignore someone's commands for a while (`silence`), used by the flood guard.
+
 ## 0.21.0
 - **New `oncehuman` and `icarus` cogs** (opt-in: add either or both to `cogs` and restart; no settings).
   - **`!oh <name>`** (alias `!oncehuman`): looks up Once Human weapons, armor, mods, attachments, items, deviations, memetics, recipes and more on [Once Human DB](https://www.oncehumandb.com).

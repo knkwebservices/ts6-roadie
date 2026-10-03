@@ -72,6 +72,8 @@ export interface BotApi {
   readonly services: ServiceRegistry;
   readonly startedAt: number;
   isAdmin(uid: string): boolean;
+  /** Ignore this person's commands (silently) for `ms` milliseconds; 0 lifts it. Bot admins are never silenced. */
+  silence(uid: string, ms: number): void;
   /** Run a chat command as a connected user, with exactly the permissions they would have in chat. */
   runCommandAs(uid: string, text: string): Promise<{ ok: boolean; replies: string[] }>;
   /** All commands from all loaded cogs (for !help). */

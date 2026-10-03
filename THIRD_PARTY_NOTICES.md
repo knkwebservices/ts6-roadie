@@ -10,6 +10,7 @@ component keeps its own license and copyright.
 | [`@echosixhiya/teamspeak-client`](https://github.com/EchoSixHIYA/teamspeak-js) v0.2.4 | The TeamSpeak protocol (connecting, chat, voice). Vendored as a pinned build in `vendor/`, commit `79cb2afb374c5f9727ed15db9f30346fa78b2c05`. Its own license text ships inside the tarball. | MIT | (c) 2026 BBQ |
 | [`opusscript`](https://github.com/abalabahaha/opusscript) v0.1.1 | Opus audio encoding (WebAssembly build of libopus 1.4) | MIT | (c) 2016-2021 abalabahaha |
 | [libopus](https://opus-codec.org/) (inside `opusscript`) | The Opus codec | BSD-style license | Xiph.Org Foundation and contributors |
+| [DejaVu Sans Bold](https://dejavu-fonts.github.io/) | The letters on the stats banner (`/banner.png`), stored as small pre-drawn bitmaps in `src/cogs/web/bannerfont.ts` | Bitstream Vera Fonts license (DejaVu changes are public domain) | (c) 2003 Bitstream, Inc.; DejaVu changes by the DejaVu authors |
 | [`@noble/curves`](https://github.com/paulmillr/noble-curves) and [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) | Cryptography used by the TeamSpeak library | MIT | (c) Paul Miller |
 
 The TeamSpeak library's authors credit the [TSLib](https://github.com/Splamy/TS3AudioBot)

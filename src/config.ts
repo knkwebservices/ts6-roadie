@@ -72,6 +72,12 @@ export interface Config {
       /** Websites allowed to embed the page or read the data feed, like "https://tgscgaming.com". */
       origins: string[];
     };
+    /** A live PNG banner (online count, record, now playing, clock) at /banner.png, for the TeamSpeak host banner. Off by default. */
+    banner: {
+      enabled: boolean;
+      /** The big line at the top, like your community's name. */
+      title: string;
+    };
     /**
      * The https address people use when a reverse proxy (such as Caddy) forwards to the dashboard,
      * for example "https://ts6.example.com". Empty (the default) means the dashboard is only for this machine.
@@ -147,6 +153,11 @@ export interface Config {
       /** Rename a channel at most this often, in seconds (TeamSpeak does not like channels renamed constantly). */
       updateSeconds: number;
     };
+    /**
+     * Server groups (by ID) that count as staff for !staff and the {staff} / {staffnames} live names.
+     * Bot admins always count.
+     */
+    staffGroups: number[];
     /** Remember when people were last online, for !seen. */
     seen: {
       enabled: boolean;
@@ -222,6 +233,32 @@ export interface Config {
     messages: string[];
     /** Where they are posted: "channel" (the bot's channel) or "server" (the server-wide chat). */
     postTo: 'channel' | 'server';
+  };
+  gamegroups: {
+    /** Let people give themselves (and take back) chosen server groups with !game, like "Fallout 76 Player". */
+    enabled: boolean;
+    /** The groups on offer: a name people type, the server group ID, and optionally a channel that toggles it when joined. Change them with !game add. */
+    games: { name: string; group: number; channel?: string }[];
+    /** After toggling a group from a channel, move the person back to where they were. */
+    moveBack: boolean;
+  };
+  floodguard: {
+    /** Catch channel hopping and chat spam. Off by default. */
+    enabled: boolean;
+    /** This many channel switches within hopSeconds is hopping. */
+    hops: number;
+    hopSeconds: number;
+    /** This many chat messages the bot can see within messageSeconds is spam. */
+    messages: number;
+    messageSeconds: number;
+    /** What happens the second time within 10 minutes (the first time is a warning): "warn" (admins are told), "move" or "kick". */
+    action: 'warn' | 'move' | 'kick';
+    /** Channel to move them to, for action "move". */
+    moveChannel: string;
+    /** After a flood, ignore the person's commands for this many seconds. */
+    quietSeconds: number;
+    /** Server groups (by ID) never checked. Bot admins never are. */
+    exemptGroups: number[];
   };
   nickfilter: {
     /** Watch nicknames for blocked words. */
@@ -314,7 +351,7 @@ export const DEFAULT_CONFIG: Config = {
   playlists: { maxPlaylists: 50, maxTracks: 100 },
   permissions: { commands: {} },
   voteskip: { threshold: 0.5 },
-  web: { host: '127.0.0.1', port: 8787, codeMinutes: 5, sessionHours: 12, publicUrl: '', widget: { enabled: false, showNames: true, origins: [] } },
+  web: { host: '127.0.0.1', port: 8787, codeMinutes: 5, sessionHours: 12, publicUrl: '', widget: { enabled: false, showNames: true, origins: [] }, banner: { enabled: false, title: '' } },
   steam: { enabled: false, apiKey: '', pollSeconds: 120, players: [] },
   analytics: { enabled: false, pollSeconds: 300 },
   twitch: { enabled: false, clientId: '', clientSecret: '', pollSeconds: 120, channels: [] },
@@ -325,6 +362,7 @@ export const DEFAULT_CONFIG: Config = {
   servertools: {
     notify: { enabled: false, rules: [], message: 'Heads up: {name} just joined "{channel}".', cooldownSeconds: 120 },
     liveNames: { enabled: false, channels: [], updateSeconds: 60 },
+    staffGroups: [],
     seen: { enabled: true, keepDays: 365 },
   },
   rooms: {
@@ -343,6 +381,8 @@ export const DEFAULT_CONFIG: Config = {
   },
   events: { enabled: true, whoCanAdd: 'admins', remindMinutes: 60, pokeGoing: true, maxEvents: 50, postTo: 'channel' },
   announcements: { enabled: false, everyMinutes: 60, messages: [], postTo: 'channel' },
+  gamegroups: { enabled: true, games: [], moveBack: true },
+  floodguard: { enabled: false, hops: 6, hopSeconds: 30, messages: 6, messageSeconds: 10, action: 'warn', moveChannel: 'AFK Room', quietSeconds: 60, exemptGroups: [] },
   nickfilter: { enabled: false, words: [], action: 'warn', moveChannel: 'AFK Room', graceSeconds: 60, exemptGroups: [] },
   follow: { idleReturnSeconds: 120, aloneLeaveSeconds: 60 },
   audio: {
@@ -469,6 +509,10 @@ export function validateConfig(c: Config): Config {
       c.web.widget.origins.every((o) => typeof o === 'string' && isOrigin(o)),
     'web.widget must look like { "enabled": false, "showNames": true, "origins": ["https://example.com"] } (each origin is a website address with no path)',
   );
+  need(
+    isObject(c.web.banner) && typeof c.web.banner.enabled === 'boolean' && typeof c.web.banner.title === 'string' && c.web.banner.title.length <= 60,
+    'web.banner must look like { "enabled": false, "title": "My Community" } (title up to 60 characters)',
+  );
   need(typeof c.steam.enabled === 'boolean', 'steam.enabled must be true or false');
   need(typeof c.steam.apiKey === 'string', 'steam.apiKey must be a string (empty if you have not set one up yet)');
   need(typeof c.steam.pollSeconds === 'number' && c.steam.pollSeconds >= 30 && c.steam.pollSeconds <= 3600, 'steam.pollSeconds must be from 30 to 3600');
@@ -533,6 +577,7 @@ export function validateConfig(c: Config): Config {
       'servertools.liveNames.channels must be a list of { "channelId": <channel ID number>, "template": "<name, up to 100 characters>" }',
     );
     need(isObject(l) && typeof l.updateSeconds === 'number' && l.updateSeconds >= 30 && l.updateSeconds <= 3600, 'servertools.liveNames.updateSeconds must be from 30 to 3600');
+    need(isObject(t) && Array.isArray(t.staffGroups) && t.staffGroups.every((g) => Number.isInteger(g) && g > 0), 'servertools.staffGroups must be a list of server-group ID numbers');
     need(isObject(sn) && typeof sn.enabled === 'boolean', 'servertools.seen.enabled must be true or false');
     need(isObject(sn) && typeof sn.keepDays === 'number' && sn.keepDays >= 1 && sn.keepDays <= 3650, 'servertools.seen.keepDays must be from 1 to 3650');
   }
@@ -585,6 +630,35 @@ export function validateConfig(c: Config): Config {
     need(isObject(a) && typeof a.everyMinutes === 'number' && a.everyMinutes >= 5 && a.everyMinutes <= 1440, 'announcements.everyMinutes must be from 5 to 1440');
     need(isObject(a) && Array.isArray(a.messages) && a.messages.length <= 50 && a.messages.every((m) => typeof m === 'string' && m.trim() !== '' && m.length <= 500), 'announcements.messages must be a list (up to 50) of messages, each 1 to 500 characters');
     need(isObject(a) && (a.postTo === 'channel' || a.postTo === 'server'), 'announcements.postTo must be "channel" or "server"');
+    const gg = c.gamegroups;
+    need(isObject(gg) && typeof gg.enabled === 'boolean', 'gamegroups.enabled must be true or false');
+    need(
+      isObject(gg) &&
+        Array.isArray(gg.games) &&
+        gg.games.length <= 50 &&
+        gg.games.every(
+          (g) =>
+            isObject(g) &&
+            typeof g.name === 'string' &&
+            g.name.trim().length >= 2 &&
+            g.name.length <= 40 &&
+            Number.isInteger(g.group) &&
+            (g.group as number) > 0 &&
+            (g.channel === undefined || (typeof g.channel === 'string' && g.channel.length <= 100)),
+        ),
+      'gamegroups.games must be a list (up to 50) of { "name": "Fallout 76", "group": <server-group ID>, "channel": "<optional channel name>" }',
+    );
+    need(isObject(gg) && typeof gg.moveBack === 'boolean', 'gamegroups.moveBack must be true or false');
+    const fg = c.floodguard;
+    need(isObject(fg) && typeof fg.enabled === 'boolean', 'floodguard.enabled must be true or false');
+    need(isObject(fg) && Number.isInteger(fg.hops) && fg.hops >= 3 && fg.hops <= 50, 'floodguard.hops must be a whole number from 3 to 50');
+    need(isObject(fg) && Number.isInteger(fg.hopSeconds) && fg.hopSeconds >= 5 && fg.hopSeconds <= 600, 'floodguard.hopSeconds must be a whole number from 5 to 600');
+    need(isObject(fg) && Number.isInteger(fg.messages) && fg.messages >= 3 && fg.messages <= 50, 'floodguard.messages must be a whole number from 3 to 50');
+    need(isObject(fg) && Number.isInteger(fg.messageSeconds) && fg.messageSeconds >= 2 && fg.messageSeconds <= 600, 'floodguard.messageSeconds must be a whole number from 2 to 600');
+    need(isObject(fg) && (fg.action === 'warn' || fg.action === 'move' || fg.action === 'kick'), 'floodguard.action must be "warn", "move" or "kick"');
+    need(isObject(fg) && typeof fg.moveChannel === 'string' && fg.moveChannel.length <= 100, 'floodguard.moveChannel must be a channel name');
+    need(isObject(fg) && Number.isInteger(fg.quietSeconds) && fg.quietSeconds >= 0 && fg.quietSeconds <= 3600, 'floodguard.quietSeconds must be a whole number from 0 to 3600');
+    need(isObject(fg) && Array.isArray(fg.exemptGroups) && fg.exemptGroups.every((g) => Number.isInteger(g) && g >= 0), 'floodguard.exemptGroups must be a list of server-group ID numbers');
     const n = c.nickfilter;
     need(isObject(n) && typeof n.enabled === 'boolean', 'nickfilter.enabled must be true or false');
     need(isObject(n) && Array.isArray(n.words) && n.words.every((w) => typeof w === 'string' && w.trim().length >= 2 && w.length <= 32), 'nickfilter.words must be a list of words, each 2 to 32 characters');

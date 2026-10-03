@@ -3,6 +3,7 @@ import type { Cog, CogFactory, CogManifest } from '../../core/types.js';
 import { SourceError } from '../audio/sources.js';
 import { createAdminApi } from './admin.js';
 import { buildWidgetData, type WidgetSettings } from './widget.js';
+import { BANNER_HEIGHT, BANNER_WIDTH, renderBanner } from './banner.js';
 import { WebAuth, type Person } from './auth.js';
 import { startWebServer, type RunningWeb } from './server.js';
 
@@ -42,6 +43,30 @@ const factory: CogFactory = (bot): Cog => {
     if (!widgetCache || now - widgetCache.at > 5_000) widgetCache = { at: now, data: buildWidgetData(bot, widget, hiddenUids()) };
     return widgetCache.data;
   };
+  // ---- the stats banner (kept between restarts) ----
+  let banner = bot.state.get<{ enabled: boolean; title: string }>('web.banner', { enabled: cfg.banner.enabled, title: cfg.banner.title });
+  const saveBanner = (next: { enabled: boolean; title: string }): void => {
+    banner = next;
+    bot.state.set('web.banner', next);
+    bannerCache = undefined;
+  };
+  let bannerCache: { at: number; png: Buffer } | undefined;
+  /** The banner, drawn at most every 30 seconds however many people look at it. */
+  const bannerPng = (): Buffer => {
+    const now = Date.now();
+    if (bannerCache && now - bannerCache.at < 30_000) return bannerCache.png;
+    const audio = bot.services.get<AudioService>(AUDIO_SERVICE)?.state?.();
+    const cur = audio?.current;
+    const song = cur ? (cur.liveTitle ? `${cur.title}: ${cur.liveTitle}` : cur.title) : '';
+    const record = bot.state.get<{ count: number }>('servertools.record', { count: 0 }).count;
+    const online = bot.adapter.users().length;
+    const clock = new Date(now).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' }).replace(',', '');
+    const png = renderBanner({ title: banner.title || bot.config.server.nickname, online, record: Math.max(record, online), song, clock });
+    bannerCache = { at: now, png };
+    return png;
+  };
+  const bannerUrl = (): string => `${cfg.publicUrl || `http://127.0.0.1:${running?.port ?? cfg.port}`}/banner.png`;
+
   const widgetUrl = (): string => `${cfg.publicUrl || `http://127.0.0.1:${running?.port ?? cfg.port}`}/widget`;
 
   const channelName = (id: bigint): string | undefined => bot.adapter.channels().find((c) => c.id === id)?.name;
@@ -110,6 +135,33 @@ const factory: CogFactory = (bot): Cog => {
         },
       },
       {
+        name: 'banner',
+        description: 'A live stats banner image for the TeamSpeak host banner: !banner [on|off|title <text>] (bot admins only)',
+        usage: `${p}banner [on|off|title <text>]`,
+        perm: 'admin',
+        run: (ctx) => {
+          const sub = ctx.args[0]?.toLowerCase();
+          if (!sub) {
+            return ctx.reply(
+              `The stats banner is ${banner.enabled ? 'ON' : 'off'}. Title: "${banner.title || bot.config.server.nickname}".\n` +
+                `Address: ${bannerUrl()} (${BANNER_WIDTH} x ${BANNER_HEIGHT}, redrawn at most every 30 seconds)\n` +
+                `${cfg.publicUrl ? 'Put that address in your server settings as the host banner image, with a refresh interval of 60 seconds.' : 'TeamSpeak clients can only load it from a public address: set web.publicUrl in config.json first.'}`,
+            );
+          }
+          if (sub === 'on' || sub === 'off') {
+            saveBanner({ ...banner, enabled: sub === 'on' });
+            return ctx.reply(sub === 'on' ? `The stats banner is on: ${bannerUrl()}` : 'The stats banner is off.');
+          }
+          if (sub === 'title') {
+            const t = ctx.rest.trim().replace(/^title\s*/i, '').trim();
+            if (!t || t.length > 60) return ctx.reply(`Usage: ${p}banner title <text, up to 60 characters>, like ${p}banner title TGSC Gaming Community`);
+            saveBanner({ ...banner, title: t });
+            return ctx.reply(`The banner title is now "${t}".`);
+          }
+          return ctx.reply(`Usage: ${p}banner [on|off|title <text>]`);
+        },
+      },
+      {
         name: 'weblogin',
         description: 'Get a one-time code to sign in to the web dashboard',
         usage: `${p}weblogin`,
@@ -138,6 +190,7 @@ const factory: CogFactory = (bot): Cog => {
           isAdmin: (uid) => bot.isAdmin(uid),
           admin: createAdminApi(bot, { widget: () => ({ enabled: widget.enabled, showNames: widget.showNames, url: widgetUrl(), origins: cfg.widget.origins, hidden: hiddenUids().size }) }),
           widget: { enabled: () => widget.enabled, origins: cfg.widget.origins, data: widgetData },
+          banner: { enabled: () => banner.enabled, png: bannerPng },
           search: async (person, q) => {
             const audio = bot.services.get<AudioService>(AUDIO_SERVICE);
             if (!audio?.search) return { ok: false, status: 503, error: 'The audio cog is not loaded.' };

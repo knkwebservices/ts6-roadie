@@ -41,6 +41,8 @@ export class Bot implements BotApi {
   readonly #admins: Set<string>;
   readonly #cooldownMs: number;
   readonly #lastCommandAt = new Map<string, number>();
+  /** People whose commands are ignored until a time (set by the flood guard). */
+  readonly #quietUntil = new Map<string, number>();
   readonly #onRestart: () => void;
   #healthTimer?: NodeJS.Timeout;
   #privilegeKeyTried = false;
@@ -60,6 +62,14 @@ export class Bot implements BotApi {
 
   isAdmin(uid: string): boolean {
     return this.#admins.has(uid);
+  }
+
+  silence(uid: string, ms: number): void {
+    if (this.isAdmin(uid)) return;
+    const now = Date.now();
+    if (ms <= 0) this.#quietUntil.delete(uid);
+    else this.#quietUntil.set(uid, now + ms);
+    if (this.#quietUntil.size > 500) for (const [k, t] of this.#quietUntil) if (t <= now) this.#quietUntil.delete(k);
   }
 
   listCommands() {
@@ -206,6 +216,9 @@ export class Bot implements BotApi {
     if (!def) return 'unknown'; // in chat we stay quiet on unknown commands - other bots share these channels
 
     const now = Date.now();
+    // someone the flood guard has silenced is ignored without a reply, which is the point
+    const quiet = this.#quietUntil.get(m.senderUid);
+    if (quiet !== undefined && now < quiet) return 'denied';
     const last = this.#lastCommandAt.get(m.senderUid) ?? 0;
     if (now - last < this.#cooldownMs) return 'cooldown';
     this.#lastCommandAt.set(m.senderUid, now);
