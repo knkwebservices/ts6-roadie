@@ -132,6 +132,7 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!analytics` (`!stats`) `[hours\|channels\|songs\|on\|off\|interval\|reset]` | Plain `!analytics` (everyone) shows a summary. The rest are admin-only. See [Server analytics](#server-analytics). |
 | `!twitch` (`!live`) `[check\|add\|remove\|interval]` | Plain `!twitch` (everyone) lists tracked channels and who's live. The rest are admin-only. See [Twitch live alerts](#twitch-live-alerts). |
 | `!seen <name>` (`!lastseen`), `!record` | Everyone (`!record reset` is for bot admins). When someone was last online, and the most people ever online at once. See [Server tools](#server-tools-support-notifier-live-channel-names-and-seen). |
+| `!nukes [alpha\|bravo\|charlie]` (`!nuke`), `!minerva [list]` | Everyone. This week's Fallout 76 nuke codes, and where Minerva is and when she comes next. `!minerva add`/`remove` are for bot admins. See [Fallout 76](#fallout-76-nuke-codes-and-minerva). |
 | `!events`, `!event <number>`, `!going [number]`, `!notgoing [number]` | Everyone. Events coming up, and signing up for a poke when one starts. `!event add` and `!event remove` are for bot admins by default. See [Events and announcements](#events-and-announcements). |
 | `!announce`, `!nickfilter` | Admins only. Rotating announcements and the nickname filter. See [Events and announcements](#events-and-announcements) and [Nickname filter](#nickname-filter). |
 | `!room` (`!myroom`), `!rooms` | `!room` (everyone) takes you to your own temporary room. `!rooms` (admins) sets them up. See [Temporary rooms](#temporary-rooms). |
@@ -347,6 +348,26 @@ The `twitch` cog posts in the channel when someone you're tracking goes live on 
 ```
 
 Adding, removing, turning it on/off and setting the interval need a bot admin; plain `!twitch` (or `!live`) is for everyone. Up to 25 channels can be tracked. The first check after loading (or after adding someone) is silent, so restarting the bot never re-announces a stream that was already running; only *going live* is posted, with the game and title if Twitch reports them. Going offline is not announced. A bad client ID/secret or a Twitch outage shows up in `!twitch` rather than spamming the channel; an expired app token is refreshed automatically.
+
+### Fallout 76: nuke codes and Minerva
+
+The `fallout76` cog is for Fallout 76 communities. Add `"fallout76"` to `cogs` and restart; there's nothing else to set up.
+
+```
+!nukes                     this week's Alpha, Bravo and Charlie codes, and when they change
+!nukes bravo               just one silo
+!minerva                   where Minerva is now, or when and where she comes next
+!minerva list              her next few visits
+!minerva add 2027-02-01 Foundation 17    admins: add a visit (first day, place, list number if known)
+!minerva remove 2026-10-19               admins: take a visit off
+!nukes refresh             admins: ask NukaCrypt again right now
+```
+
+**Nuke codes** come from [NukaCrypt](https://nukacrypt.com), who decode them every week; thanks to them for their public API. The bot asks for the codes once and keeps them until the weekly change, so NukaCrypt isn't asked every time someone types `!nukes`. After the change the bot checks every 15 minutes until the new codes are up; until then `!nukes` says they're on the way rather than showing last week's.
+
+**Minerva** arrives and leaves at noon US Eastern: Monday to Wednesday at Foundation, the Crater or Fort Atlas, and Thursday to Monday for her Big Sale at the Whitespring Resort. Some weeks she skips, so her visits can't be worked out from a formula. The bot knows her published schedule through January 2027 (from [Nuka Knights](https://nukaknights.com/minerva-dates-inventory.html) and the Fallout wiki). New releases of Roadie add more dates; in between, or if Bethesda changes the schedule, a bot admin can add or remove visits with `!minerva add` / `!minerva remove`. Additions are kept in `data/state.json` and win over the built-in dates.
+
+Times are shown in the bot computer's time zone.
 
 ### Events and announcements
 

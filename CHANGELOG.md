@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.20.0
+- **New `fallout76` cog** (opt-in: add `"fallout76"` to `cogs` and restart; no settings).
+  - **`!nukes [alpha|bravo|charlie]`** (alias `!nuke`, everyone): this week's nuke codes from [NukaCrypt](https://nukacrypt.com) (credited in every reply), with when they change. Fetched once per weekly change and kept in `data/state.json`; after the change the bot retries every 15 minutes (never more often) until NukaCrypt has the new codes, and says so instead of showing last week's. `!nukes refresh` (admins) fetches now.
+  - **`!minerva`** (everyone): where Minerva is now and when she leaves, or where and when she comes next; `!minerva list` shows her next visits. Her published schedule (lists 4 to 16, October 2026 to January 2027) is built in, at noon US Eastern with daylight saving handled. Admins can `!minerva add <date> <place> [list]` and `!minerva remove <date>` to keep it current between releases.
+
 ## 0.19.0
 - **New `events` cog** (opt-in: add `"events"` to `cogs` and restart): event reminders and rotating announcements, posted in the bot's channel (`events.postTo` / `announcements.postTo` can be `"server"` for the server-wide chat, which the TeamSpeak 6 client has nowhere to show).
   - **Events:** `!event add Friday 8pm | Nuke run` (also `tomorrow 7:30pm`, `today 9pm`, `10/31 8pm`, `in 2h`, and `weekly Friday 8pm` to repeat), `!events`, `!event <n>`, `!event remove <n>`. Everyone can `!going [n]` / `!notgoing [n]`. A reminder goes out `events.remindMinutes` (default 60) before, and privately to everyone going who is online; at the start the bot posts "Starting now" and pokes everyone going who is online. Weekly events roll on with an empty going list; a start missed while the bot was down isn't announced late. Bot admins add events unless `events.whoCanAdd` is `"everyone"`; the person who added one (or an admin) can remove it.
