@@ -242,6 +242,22 @@ export interface Config {
     /** After toggling a group from a channel, move the person back to where they were. */
     moveBack: boolean;
   };
+  ipguard: {
+    /** Check people as they join: VPN/proxy (proxycheck.io), several connections from one address, and country. Off by default. */
+    enabled: boolean;
+    /** "warn" (tell the online bot admins), "move" (to moveChannel) or "kick". */
+    action: 'warn' | 'move' | 'kick';
+    moveChannel: string;
+    /** A free proxycheck.io key raises the daily lookups from about 100 to 1,000. Optional. */
+    apiKey: string;
+    vpn: boolean;
+    clones: boolean;
+    maxPerIp: number;
+    countryMode: 'off' | 'allow' | 'block';
+    countries: string[];
+    exemptGroups: number[];
+    exemptUids: string[];
+  };
   floodguard: {
     /** Catch channel hopping and chat spam. Off by default. */
     enabled: boolean;
@@ -382,6 +398,7 @@ export const DEFAULT_CONFIG: Config = {
   events: { enabled: true, whoCanAdd: 'admins', remindMinutes: 60, pokeGoing: true, maxEvents: 50, postTo: 'channel' },
   announcements: { enabled: false, everyMinutes: 60, messages: [], postTo: 'channel' },
   gamegroups: { enabled: true, games: [], moveBack: true },
+  ipguard: { enabled: false, action: 'warn', moveChannel: 'AFK Room', apiKey: '', vpn: true, clones: false, maxPerIp: 2, countryMode: 'off', countries: [], exemptGroups: [], exemptUids: [] },
   floodguard: { enabled: false, hops: 6, hopSeconds: 30, messages: 6, messageSeconds: 10, action: 'warn', moveChannel: 'AFK Room', quietSeconds: 60, exemptGroups: [] },
   nickfilter: { enabled: false, words: [], action: 'warn', moveChannel: 'AFK Room', graceSeconds: 60, exemptGroups: [] },
   follow: { idleReturnSeconds: 120, aloneLeaveSeconds: 60 },
@@ -649,6 +666,17 @@ export function validateConfig(c: Config): Config {
       'gamegroups.games must be a list (up to 50) of { "name": "Fallout 76", "group": <server-group ID>, "channel": "<optional channel name>" }',
     );
     need(isObject(gg) && typeof gg.moveBack === 'boolean', 'gamegroups.moveBack must be true or false');
+    const ig = c.ipguard;
+    need(isObject(ig) && typeof ig.enabled === 'boolean', 'ipguard.enabled must be true or false');
+    need(isObject(ig) && (ig.action === 'warn' || ig.action === 'move' || ig.action === 'kick'), 'ipguard.action must be "warn", "move" or "kick"');
+    need(isObject(ig) && typeof ig.moveChannel === 'string' && ig.moveChannel.length <= 100, 'ipguard.moveChannel must be a channel name');
+    need(isObject(ig) && typeof ig.apiKey === 'string' && ig.apiKey.length <= 100, 'ipguard.apiKey must be a string (empty for none)');
+    need(isObject(ig) && typeof ig.vpn === 'boolean' && typeof ig.clones === 'boolean', 'ipguard.vpn and ipguard.clones must be true or false');
+    need(isObject(ig) && Number.isInteger(ig.maxPerIp) && ig.maxPerIp >= 1 && ig.maxPerIp <= 20, 'ipguard.maxPerIp must be a whole number from 1 to 20');
+    need(isObject(ig) && (ig.countryMode === 'off' || ig.countryMode === 'allow' || ig.countryMode === 'block'), 'ipguard.countryMode must be "off", "allow" or "block"');
+    need(isObject(ig) && Array.isArray(ig.countries) && ig.countries.every((x) => typeof x === 'string' && /^[A-Za-z]{2}$/.test(x)), 'ipguard.countries must be a list of two-letter country codes, like ["US", "CA"]');
+    need(isObject(ig) && Array.isArray(ig.exemptGroups) && ig.exemptGroups.every((g) => Number.isInteger(g) && g >= 0), 'ipguard.exemptGroups must be a list of server-group ID numbers');
+    need(isObject(ig) && Array.isArray(ig.exemptUids) && ig.exemptUids.every((u) => typeof u === 'string'), 'ipguard.exemptUids must be a list of unique IDs');
     const fg = c.floodguard;
     need(isObject(fg) && typeof fg.enabled === 'boolean', 'floodguard.enabled must be true or false');
     need(isObject(fg) && Number.isInteger(fg.hops) && fg.hops >= 3 && fg.hops <= 50, 'floodguard.hops must be a whole number from 3 to 50');

@@ -93,6 +93,11 @@ export interface TsAdapter {
    * the client list does not always hear about group changes made while someone is online.)
    */
   userGroups(userId: number): Promise<number[]>;
+  /**
+   * Everything the server tells the bot about one person, as raw name/value pairs: the client info answer,
+   * plus the connection info answer when the server gives one. For diagnostics (!whois); nothing is stored.
+   */
+  clientDetails(userId: number): Promise<{ info: Record<string, string>; connection: Record<string, string> | string }>;
   /** How many seconds since this person last did anything, or undefined if the server would not say. */
   idleSeconds(userId: number): Promise<number | undefined>;
   reply(to: IncomingMessage, text: string): Promise<void>;

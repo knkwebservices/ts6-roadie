@@ -140,6 +140,7 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!rank [name]` (`!hours`), `!ranks`, `!protect` | `!rank` (everyone) shows time online and rank. `!ranks` and `!protect` are admin-only. See [Ranks and protected groups](#ranks-and-protected-groups). |
 | `!staff` (`!admins`) | Everyone. Which staff are online right now, and where. `!staff add`/`remove <group ID>` (bot admins) chooses which server groups count. See [Staff online](#staff-online). |
 | `!game <name>` (`!role`), `!games` | Everyone. Give yourself a game's server group (like "Fallout 76 Player"), or take it away. Admins set them up. See [Game groups](#game-groups). |
+| `!ipguard`, `!whois <name>` | Admins only. VPN/proxy, clone and country checks on people joining, and what the server says about someone (privately). See [IP guard](#ip-guard-vpn-proxy-clones-and-countries). |
 | `!floodguard`, `!banner` | Admins only. The channel-hopping and chat-spam guard, and the live stats banner. See [Flood guard](#flood-guard) and [Stats banner](#stats-banner). |
 | `!notify`, `!livename` | Admins only. The support notifier and live channel names. See [Server tools](#server-tools-support-notifier-live-channel-names-and-seen). |
 | `!hideme [on\|off]` (`!hide`) | Leave your name off the public widget (you still count in the total). |
@@ -481,6 +482,19 @@ Someone who already has a room and joins again is just taken back to it, and `!r
 
 Some servers move whoever creates a channel into it; the bot then goes straight back to where it was, after the owner is in (so the room is never left empty). The bot's server group needs to be allowed to create temporary (and child) channels, move people, and assign the owner's channel group; if something is refused, the person is told why and it goes in the log.
 
+### IP guard: VPN, proxy, clones and countries
+
+The `ipguard` cog checks people as they join. It's off by default: add `"ipguard"` to `cogs`, restart, and `!ipguard on`. It needs the bot's server group to have **b_client_remoteaddress_view** (view client IP addresses); Server Admin groups usually do. `!whois <name>` (bot admins, answered privately) shows what the server tells the bot about someone, including whether it shares their address.
+
+- **VPN/proxy:** the address is checked with [proxycheck.io](https://proxycheck.io) (about 100 checks a day free; a free account key in `ipguard.apiKey` raises that to 1,000). Answers are remembered for a day, so a regular is looked up at most once a day.
+- **Clones:** off by default (`!ipguard clones on`). More than `!ipguard max <n>` (2) connections from one address. Families and housemates share an address, so set the limit with that in mind.
+- **Countries:** `!ipguard countries allow US CA` (only these) or `!ipguard countries block XX` (all but these), using the country TeamSpeak reports. `!ipguard countries off` to stop.
+- **What happens:** `!ipguard action warn` (the default: online bot admins are told, nobody is touched), `move` (to `ipguard.moveChannel`, "AFK Room") or `kick`. Admins are told either way.
+- **Never checked:** bot admins, `ipguard.exemptGroups`, people added with `!ipguard exempt <name>` (a friend who always uses a VPN), and anyone on the same network as the server (local addresses have no country and are never looked up). People already online when the bot starts are noted, not acted on.
+- `!ipguard check <name>` tests someone now without acting. Plain `!ipguard` shows the settings and how many lookups were used today.
+
+Addresses are only used for these checks. They're never posted in chat, shown on the dashboard or widget, or sent anywhere but proxycheck.io; the reports admins get name the problem, not the address.
+
 ### Game groups
 
 The `gamegroups` cog lets people give themselves server groups an admin has offered, like "Fallout 76 Player", so everyone can see who plays what. Add `"gamegroups"` to `cogs` and restart. Make the server groups in TeamSpeak first, and make sure the bot's group is allowed to add people to them (its "group member add power" must be at least the group's "needed member add power", and the same for removing).
@@ -499,6 +513,8 @@ Names match loosely (`!game fallout76`, `!game once` for Once Human). Joining a 
 ### Staff online
 
 `!staff` (or `!admins`, everyone) lists the staff online right now and which channel they're in. Staff are bot admins plus the server groups an admin adds with `!staff add <group ID>` (`!staff remove`, `!staff groups`; or `servertools.staffGroups` in `config.json`). It's part of the `servertools` cog, and so are two new [live channel name](#server-tools-support-notifier-live-channel-names-and-seen) placeholders: `{staff}` (how many are online) and `{staffnames}` (their names, shortened with "..." to fit the 40 characters), for example `!livename add Staff | [cspacer]Staff on: {staffnames}`.
+
+Live names can also show the clock: `{time}` ("9:41 PM") and `{date}` ("Sat, Oct 3"), in the bot computer's time zone, for example `!livename add Clock | [cspacer]{date} | {time}`. They're updated every `servertools.liveNames.updateSeconds` (60 by default), so the clock is at most about a minute behind.
 
 ### Flood guard
 

@@ -154,6 +154,12 @@ export class FakeAdapter implements TsAdapter {
     }
     u.groups = u.groups.filter((g) => g !== groupId);
   }
+  details = new Map<number, Record<string, string>>();
+  async clientDetails(id: number) {
+    const u = this.userList.find((x) => x.id === id);
+    if (!u) throw new Error('no such client');
+    return { info: { client_nickname: u.name, ...(this.details.get(id) ?? {}) }, connection: 'not supported' as Record<string, string> | string };
+  }
   async idleSeconds(id: number) {
     this.idleCalls.push(id);
     return this.idle.get(id);

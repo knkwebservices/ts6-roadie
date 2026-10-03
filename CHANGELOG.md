@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.23.0
+- **New `ipguard` cog** (opt-in, off until `!ipguard on`): checks people as they join. VPN/proxy through proxycheck.io (free; optional `ipguard.apiKey` for more lookups; answers cached a day and kept between restarts), clones (more than `maxPerIp` from one address, off by default), and countries (`!ipguard countries allow|block <codes>|off`). `!ipguard action warn` (tell admins, the default), `move` or `kick`. Bot admins, `exemptGroups`, `!ipguard exempt <name>` and local-network addresses are never checked; people already online at start are not acted on. `!ipguard check <name>` tests without acting. Needs `b_client_remoteaddress_view` for the bot's group. Addresses are never shown in chat, the dashboard or the widget.
+- **`!whois <name>`** (bot admins, private): what the server tells the bot about someone (country, address if shared, client version and platform).
+- **Clock in live channel names:** `{time}` and `{date}`, like `[cspacer]{date} | {time}`.
+- The adapter can now return everything the server says about one client (`clientDetails`).
+
 ## 0.22.0
 - **New `gamegroups` cog** (opt-in): `!game <name>` (aliases `!role`; `!games` lists them) gives people a server group an admin has offered, like "Fallout 76 Player", or takes it away again. Admins: `!game add <group ID> <name>`, `!game remove <name>`, `!game channel <name> | <channel>` (joining that channel toggles it, and with `gamegroups.moveBack` the person is moved back), `!game on`/`off`. Groups are checked with the server, not the (sometimes stale) client list; a refused change is explained; one toggle per person and game every 5 seconds.
 - **Staff online** (in `servertools`): `!staff` (alias `!admins`) lists staff online and where. Staff are bot admins plus `servertools.staffGroups` / `!staff add <group ID>`. Live channel names get `{staff}` and `{staffnames}` (shortened to fit).

@@ -244,3 +244,24 @@ test('/banner.png is public while on, and !banner sets it up', async () => {
     r.cleanup();
   }
 });
+
+test('!whois shows what the server shares, privately, to bot admins only', async () => {
+  const h = await makeBot({ config: makeConfig({ cogs: ['core', 'servertools'] }) });
+  try {
+    const admin = h.adapter.addUser(2, 'Admin', CH.home, 'uid-Admin');
+    const amy = h.adapter.addUser(10, 'Amy', CH.a);
+    assert.match(await say(h, amy, '!whois Admin'), /admins only/i);
+    h.adapter.details.set(10, { client_country: 'US', connection_client_ip: '192.168.1.20', client_version: '6.0.0' });
+    const out = await say(h, admin, '!whois am');
+    assert.match(out, /About Amy \(client #10\):/);
+    assert.match(out, /client_country: US/);
+    assert.match(out, /connection_client_ip: 192\.168\.1\.20/);
+    assert.match(out, /Connection info: not available/);
+    assert.match(out, /DOES share addresses/);
+    h.adapter.details.set(10, { client_country: 'US' });
+    assert.match(await say(h, admin, '!whois amy'), /no address was shared/);
+    assert.match(await say(h, admin, '!whois zed'), /Nobody online matches/);
+  } finally {
+    h.cleanup();
+  }
+});

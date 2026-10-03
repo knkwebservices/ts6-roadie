@@ -12,10 +12,21 @@ export interface LiveValues {
   staff?: number;
   /** Their names, comma-separated, or empty. */
   staffNames?: string;
+  /** Already formatted, like "9:41 PM" and "Sat, Oct 3". */
+  time?: string;
+  date?: string;
 }
 
 /** The placeholders a live channel name may use. */
-export const PLACEHOLDERS = ['{online}', '{record}', '{song}', '{staff}', '{staffnames}'] as const;
+export const PLACEHOLDERS = ['{online}', '{record}', '{song}', '{staff}', '{staffnames}', '{time}', '{date}'] as const;
+
+/** The clock as live names show it, in the bot computer's time zone. */
+export function clockValues(now = new Date()): { time: string; date: string } {
+  return {
+    time: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+    date: now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+  };
+}
 
 const shorten = (s: string, room: number): string => (room >= 4 ? `${s.slice(0, room - 3).trimEnd()}...` : '');
 
@@ -30,6 +41,8 @@ export function renderLiveName(template: string, v: LiveValues): string {
       .replace(/\{record\}/gi, String(v.record))
       .replace(/\{staffnames\}/gi, names)
       .replace(/\{staff\}/gi, String(v.staff ?? 0))
+      .replace(/\{time\}/gi, v.time ?? '')
+      .replace(/\{date\}/gi, v.date ?? '')
       .replace(/\{song\}/gi, song)
       .replace(/[\r\n\t]+/g, ' ');
   let song = v.song.trim() || '-';

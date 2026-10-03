@@ -3,7 +3,7 @@ import type { TsChannel, TsUser } from '../../adapter/types.js';
 import { AUDIO_SERVICE, type AudioService } from '../../core/services.js';
 import type { BotApi, Cog, CogFactory, CogManifest } from '../../core/types.js';
 import { errMessage, formatAgo } from '../../util/text.js';
-import { MAX_CHANNEL_NAME, renderLiveName, type LiveValues } from './livenames.js';
+import { clockValues, MAX_CHANNEL_NAME, renderLiveName, type LiveValues } from './livenames.js';
 import { SeenStore, type SeenEntry } from './seen.js';
 
 export const manifest: CogManifest = {
@@ -167,7 +167,7 @@ export function createServerToolsCog(bot: BotApi): Cog {
       }
     }
     const staff = staffOnline();
-    return { online: adapter.users().length, record: record.count, song, staff: staff.length, staffNames: staff.map((u) => u.name).join(', ') };
+    return { online: adapter.users().length, record: record.count, song, staff: staff.length, staffNames: staff.map((u) => u.name).join(', '), ...clockValues() };
   }
 
   /** Rename the live channels whose name is out of date. `force` ignores the minimum wait (used by !livename now). */
@@ -281,6 +281,38 @@ export function createServerToolsCog(bot: BotApi): Cog {
           if (hits.length === 1) return ctx.reply(describeSeen(hits[0]!));
           const shown = hits.slice(0, MAX_MATCHES_SHOWN).map((e) => describeSeen(e));
           return ctx.reply(`${hits.length} people match "${q}":\n${shown.join('\n')}${hits.length > MAX_MATCHES_SHOWN ? `\n...and ${hits.length - MAX_MATCHES_SHOWN} more. Try more of the name.` : ''}`);
+        },
+      },
+      {
+        name: 'whois',
+        description: `What the server tells me about someone online: country, address (if the server shares it), client version (bot admins only, answered privately)`,
+        usage: `${p}whois <name>`,
+        perm: 'admin',
+        run: async (ctx) => {
+          const q = ctx.rest.trim().toLowerCase();
+          const tell = (text: string): Promise<void> => adapter.sendPrivate(ctx.msg.senderId, text).catch(() => ctx.reply(text));
+          if (!q) return tell(`Usage: ${p}whois <name>`);
+          const online = adapter.users();
+          const who = online.find((u) => u.name.toLowerCase() === q) ?? online.find((u) => u.name.toLowerCase().includes(q));
+          if (!who) return tell(`Nobody online matches "${ctx.rest.trim()}".`);
+          let d: Awaited<ReturnType<typeof adapter.clientDetails>>;
+          try {
+            d = await adapter.clientDetails(who.id);
+          } catch (e) {
+            return tell(`The server wouldn't tell me about ${who.name}: ${errMessage(e)}`);
+          }
+          const pick = (rec: Record<string, string>, re: RegExp): string[] =>
+            Object.entries(rec)
+              .filter(([k]) => re.test(k))
+              .map(([k, v]) => `${k}: ${v === '' ? '(empty)' : v}`);
+          const interesting = /ip|country|version|platform|address|port/i;
+          const lines = [`About ${who.name} (client #${who.id}):`, ...pick(d.info, interesting)];
+          if (typeof d.connection === 'string') lines.push(`Connection info: not available (${d.connection})`);
+          else lines.push('Connection info:', ...pick(d.connection, interesting));
+          const hasIp = [...Object.entries(d.info), ...(typeof d.connection === 'string' ? [] : Object.entries(d.connection))].some(([k, v]) => /client_ip|connection_client_ip/i.test(k) && v !== '');
+          lines.push(hasIp ? 'Result: the server DOES share addresses with me.' : 'Result: no address was shared (check that my server group has b_client_remoteaddress_view).');
+          lines.push(`All fields the server sent: ${Object.keys(d.info).join(', ')}`);
+          return tell(lines.join('\n'));
         },
       },
       {
@@ -408,7 +440,7 @@ export function createServerToolsCog(bot: BotApi): Cog {
             const lines = [
               `Live channel names are ${live.enabled ? `on (each updated at most every ${cfg.liveNames.updateSeconds}s)` : 'off'}.`,
               live.channels.length ? live.channels.map(liveLine).join('\n') : `No channels yet. Add one with ${p}livename add <channel> | [cspacer]Online: {online}`,
-              `You can use {online} (people online now), {record} (most ever at once), {song} (what I'm playing), {staff} (staff online) and {staffnames} (their names). TeamSpeak allows ${MAX_CHANNEL_NAME} characters.`,
+              `You can use {online} (people online now), {record} (most ever at once), {song} (what I'm playing), {staff} (staff online), {staffnames} (their names), {time} and {date}. TeamSpeak allows ${MAX_CHANNEL_NAME} characters.`,
             ];
             return ctx.reply(lines.join('\n'));
           }
@@ -430,7 +462,7 @@ export function createServerToolsCog(bot: BotApi): Cog {
             if (!ch) return ctx.reply(`I cannot find a channel called "${body.slice(0, bar).trim()}".`);
             const template = body.slice(bar + 1).trim();
             if (!template || template.length > 100) return ctx.reply('Give the name to use after the "|", up to 100 characters.');
-            if (!/\{(online|record|song|staff|staffnames)\}/i.test(template)) return ctx.reply('Put at least one of {online}, {record}, {song}, {staff} or {staffnames} in it, or there is nothing to keep up to date.');
+            if (!/\{(online|record|song|staff|staffnames|time|date)\}/i.test(template)) return ctx.reply('Put at least one of {online}, {record}, {song}, {staff}, {staffnames}, {time} or {date} in it, or there is nothing to keep up to date.');
             const others = live.channels.filter((e) => e.channelId !== Number(ch.id));
             if (others.length >= MAX_LIVE) return ctx.reply(`That's the most I keep up to date (${MAX_LIVE}). Remove one first.`);
             saveLive({ ...live, channels: [...others, { channelId: Number(ch.id), template }] });

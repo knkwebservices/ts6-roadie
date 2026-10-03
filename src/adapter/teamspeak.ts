@@ -319,6 +319,20 @@ export class TeamspeakAdapter implements TsAdapter {
     await this.#need().execCommand(buildCommand('servergroupdelclient', { sgid: String(groupId), cldbid: dbid }), 10_000);
   }
 
+  async clientDetails(userId: number): Promise<{ info: Record<string, string>; connection: Record<string, string> | string }> {
+    const c = this.#need();
+    const info = await getClientInfo(c, userId);
+    let connection: Record<string, string> | string;
+    try {
+      const rows = await c.execCommandWithResponse(buildCommand('getconnectioninfo', { clid: String(userId) }), 5_000);
+      connection = Object.assign({}, ...rows) as Record<string, string>;
+      if (!Object.keys(connection).length) connection = 'the server answered with nothing';
+    } catch (e) {
+      connection = errMessage(e);
+    }
+    return { info, connection };
+  }
+
   async userGroups(userId: number): Promise<number[]> {
     const info = await getClientInfo(this.#need(), userId);
     return parseGroupIds(info['client_servergroups'] ?? '');
