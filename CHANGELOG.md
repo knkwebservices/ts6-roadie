@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.24.0
+- **New `modtools` cog** (opt-in: add `"modtools"` to `cogs`):
+  - **Jail** (admins): `!jail <name> [30|2h|1d|forever] [reason]` moves someone to the jail channel (`modtools.jailChannel`, default "Jail") and moves them back if they leave, with a poke saying how long is left. Survives reconnects and bot restarts (kept in `data/state.json`); they're told when their time is up. `!unjail <name>`, `!jailed`. Bot admins can't be jailed; `modtools.defaultMinutes` (30) and `modtools.maxMinutes` (a week). Names with spaces work.
+  - **Reports** (everyone): `!report <name> <what happened>` pokes and privately messages every staff member online (bot admins and the staff groups), with the channel the person is in; saved when nobody's on. `!reports [clear]` (admins). One per person per `reportCooldownSeconds` (60); the last `keepReports` (100) are kept.
+  - **Meetings** (admins): `!meeting` brings every staff member online into your channel.
+
 ## 0.23.0
 - **New `ipguard` cog** (opt-in, off until `!ipguard on`): checks people as they join. VPN/proxy through proxycheck.io (free; optional `ipguard.apiKey` for more lookups; answers cached a day and kept between restarts), clones (more than `maxPerIp` from one address, off by default), and countries (`!ipguard countries allow|block <codes>|off`). `!ipguard action warn` (tell admins, the default), `move` or `kick`. Bot admins, `exemptGroups`, `!ipguard exempt <name>` and local-network addresses are never checked; people already online at start are not acted on. `!ipguard check <name>` tests without acting. Needs `b_client_remoteaddress_view` for the bot's group. Addresses are never shown in chat, the dashboard or the widget.
 - **`!whois <name>`** (bot admins, private): what the server tells the bot about someone (country, address if shared, client version and platform).

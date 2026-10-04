@@ -140,6 +140,8 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!rank [name]` (`!hours`), `!ranks`, `!protect` | `!rank` (everyone) shows time online and rank. `!ranks` and `!protect` are admin-only. See [Ranks and protected groups](#ranks-and-protected-groups). |
 | `!staff` (`!admins`) | Everyone. Which staff are online right now, and where. `!staff add`/`remove <group ID>` (bot admins) chooses which server groups count. See [Staff online](#staff-online). |
 | `!game <name>` (`!role`), `!games` | Everyone. Give yourself a game's server group (like "Fallout 76 Player"), or take it away. Admins set them up. See [Game groups](#game-groups). |
+| `!report <name> <what happened>` | Everyone. Privately tells the staff online about a problem, and saves it for the rest. See [Jail, reports and meetings](#jail-reports-and-meetings). |
+| `!jail`, `!unjail`, `!jailed`, `!reports`, `!meeting` | Admins only. Keep someone in a jail channel for a while, read reports, and pull the staff together. See [Jail, reports and meetings](#jail-reports-and-meetings). |
 | `!ipguard`, `!whois <name>` | Admins only. VPN/proxy, clone and country checks on people joining, and what the server says about someone (privately). See [IP guard](#ip-guard-vpn-proxy-clones-and-countries). |
 | `!floodguard`, `!banner` | Admins only. The channel-hopping and chat-spam guard, and the live stats banner. See [Flood guard](#flood-guard) and [Stats banner](#stats-banner). |
 | `!notify`, `!livename` | Admins only. The support notifier and live channel names. See [Server tools](#server-tools-support-notifier-live-channel-names-and-seen). |
@@ -481,6 +483,27 @@ Someone who already has a room and joins again is just taken back to it, and `!r
 ```
 
 Some servers move whoever creates a channel into it; the bot then goes straight back to where it was, after the owner is in (so the room is never left empty). The bot's server group needs to be allowed to create temporary (and child) channels, move people, and assign the owner's channel group; if something is refused, the person is told why and it goes in the log.
+
+### Jail, reports and meetings
+
+The `modtools` cog has three moderation tools. Add `"modtools"` to `cogs` and restart.
+
+**Jail.** Make a channel called "Jail" (or set `modtools.jailChannel`), and lock it in TeamSpeak so people can't wander in or talk their way out.
+
+```
+!jail Bob                   30 minutes (modtools.defaultMinutes)
+!jail Bob 2h spamming       2 hours, with a reason Bob is told
+!jail Big Mike 1d           names with spaces work
+!jail Bob forever           until someone lets him out
+!unjail Bob                 let him out early
+!jailed                     who is in jail and for how long
+```
+
+The person is moved to the jail channel and told why and for how long. If they leave, they're moved straight back (with a poke saying how long is left), and that survives disconnecting and reconnecting, because the jail list is kept in `data/state.json`. When the time is up they're told they can go. Bot admins can't be jailed. The longest allowed is `modtools.maxMinutes` (a week). If you use the AFK mover, add the jail channel to `community.afk.ignoreChannels` so the two don't take turns moving someone.
+
+**Reports.** Anyone can `!report <name> <what happened>`. Every staff member online (bot admins, and the [staff groups](#staff-online)) gets a poke and a private message with the details and which channel the person is in. If nobody is on, the report is saved. `!reports` (admins) shows the last 10, `!reports clear` empties the list. One report per person per minute (`modtools.reportCooldownSeconds`), and the last 100 are kept (`modtools.keepReports`).
+
+**Meetings.** `!meeting` (admins) brings every staff member online into your channel, with a poke so they know why.
 
 ### IP guard: VPN, proxy, clones and countries
 

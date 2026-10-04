@@ -242,6 +242,18 @@ export interface Config {
     /** After toggling a group from a channel, move the person back to where they were. */
     moveBack: boolean;
   };
+  modtools: {
+    /** The channel !jail puts people in (lock it in TeamSpeak so people can't wander in). */
+    jailChannel: string;
+    /** Jail time when none is given, in minutes. */
+    defaultMinutes: number;
+    /** Longest jail time allowed, in minutes. */
+    maxMinutes: number;
+    /** One !report per person per this many seconds. */
+    reportCooldownSeconds: number;
+    /** How many reports are kept. */
+    keepReports: number;
+  };
   ipguard: {
     /** Check people as they join: VPN/proxy (proxycheck.io), several connections from one address, and country. Off by default. */
     enabled: boolean;
@@ -398,6 +410,7 @@ export const DEFAULT_CONFIG: Config = {
   events: { enabled: true, whoCanAdd: 'admins', remindMinutes: 60, pokeGoing: true, maxEvents: 50, postTo: 'channel' },
   announcements: { enabled: false, everyMinutes: 60, messages: [], postTo: 'channel' },
   gamegroups: { enabled: true, games: [], moveBack: true },
+  modtools: { jailChannel: 'Jail', defaultMinutes: 30, maxMinutes: 10_080, reportCooldownSeconds: 60, keepReports: 100 },
   ipguard: { enabled: false, action: 'warn', moveChannel: 'AFK Room', apiKey: '', vpn: true, clones: false, maxPerIp: 2, countryMode: 'off', countries: [], exemptGroups: [], exemptUids: [] },
   floodguard: { enabled: false, hops: 6, hopSeconds: 30, messages: 6, messageSeconds: 10, action: 'warn', moveChannel: 'AFK Room', quietSeconds: 60, exemptGroups: [] },
   nickfilter: { enabled: false, words: [], action: 'warn', moveChannel: 'AFK Room', graceSeconds: 60, exemptGroups: [] },
@@ -666,6 +679,12 @@ export function validateConfig(c: Config): Config {
       'gamegroups.games must be a list (up to 50) of { "name": "Fallout 76", "group": <server-group ID>, "channel": "<optional channel name>" }',
     );
     need(isObject(gg) && typeof gg.moveBack === 'boolean', 'gamegroups.moveBack must be true or false');
+    const mt = c.modtools;
+    need(isObject(mt) && typeof mt.jailChannel === 'string' && mt.jailChannel.trim() !== '' && mt.jailChannel.length <= 100, 'modtools.jailChannel must be a channel name');
+    need(isObject(mt) && Number.isInteger(mt.defaultMinutes) && mt.defaultMinutes >= 1 && mt.defaultMinutes <= 525_600, 'modtools.defaultMinutes must be a whole number from 1 to 525600');
+    need(isObject(mt) && Number.isInteger(mt.maxMinutes) && mt.maxMinutes >= 1 && mt.maxMinutes <= 525_600, 'modtools.maxMinutes must be a whole number from 1 to 525600');
+    need(isObject(mt) && Number.isInteger(mt.reportCooldownSeconds) && mt.reportCooldownSeconds >= 0 && mt.reportCooldownSeconds <= 3600, 'modtools.reportCooldownSeconds must be a whole number from 0 to 3600');
+    need(isObject(mt) && Number.isInteger(mt.keepReports) && mt.keepReports >= 1 && mt.keepReports <= 1000, 'modtools.keepReports must be a whole number from 1 to 1000');
     const ig = c.ipguard;
     need(isObject(ig) && typeof ig.enabled === 'boolean', 'ipguard.enabled must be true or false');
     need(isObject(ig) && (ig.action === 'warn' || ig.action === 'move' || ig.action === 'kick'), 'ipguard.action must be "warn", "move" or "kick"');
