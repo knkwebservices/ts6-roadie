@@ -145,6 +145,12 @@ export interface AudioService {
   history(count?: number): HistoryEntry[];
   /** Tool versions and the last YouTube check (no slow work: it is remembered). */
   tools(): ToolsInfo;
+  /**
+   * Say something (48 kHz 16-bit stereo PCM) in the channel of the online client `userId`. If the bot is
+   * elsewhere and free, it moves there first; if it is playing music elsewhere, it refuses with a reason
+   * that is safe to show. Music playing in the same channel is turned down while it speaks.
+   */
+  speakFor(userId: number, pcm: Buffer, opts?: { pauseMusic?: boolean }): Promise<{ ok: true } | { ok: false; reason: string }>;
 }
 
 // ---- the community cog's service ---------------------------------------------------------

@@ -420,6 +420,39 @@ The `events` cog posts in the **bot's channel** (its home channel when it's idle
 !announce remove 2
 ```
 
+### Text to speech
+
+The `tts` cog reads typed messages aloud in TeamSpeak, for members who can't or don't want to talk (a mute friend, someone at work, someone on a phone with no mic). Add `"tts"` to `cogs` and restart. It needs the `audio` cog, because it speaks through the same player as the music.
+
+```
+!say <text>          read one message aloud in your channel (alias !speak)
+!tts on              read EVERYTHING you type to the bot (in a private message, or in its channel) aloud
+!tts off             stop that
+!tts                 the current voice, and whether read-out is on for you
+```
+
+With `!tts on` there's nothing to type before each line: just send the bot a private message and it's said in your channel. Commands (anything starting with `!`) are never read out. The first line (and the first after a two-minute pause, or after someone else spoke) starts with "<name> says:", so people know who it is (`tts.sayName`).
+
+How it behaves:
+
+- The bot speaks in **your** channel. If it's free it comes to you (and goes home later, like after music). If it's playing music somewhere else, it tells you to join it there instead of leaving the music.
+- Music in the same channel **pauses** while it speaks and carries on afterwards (`tts.music`, or `!tts music pause|duck` for admins; "duck" turns it right down instead). Speech is evened out to a steady loudness, so quiet voices aren't lost.
+- Links are said as "a link", BBCode is dropped, and messages longer than `tts.maxChars` (250) are cut short. One message per person every `tts.cooldownSeconds` (3), and at most 5 waiting at a time.
+- `tts.allowedGroups` limits it to some server groups (empty = everyone; bot admins always can).
+
+**Voices.** By default it uses the voices built into Windows, so there is nothing to install. Admins:
+
+```
+!tts voices                  list the Windows voices on the bot's computer
+!tts voice zira              pick one (part of the name is enough; "default" for the system voice)
+!tts speed 1                 -10 (slow) to 10 (fast), 0 is normal
+!tts volume 80               0-100, separate from the music volume
+```
+
+For more natural voices, use [Piper](https://github.com/rhasspy/piper) (free, offline): download the Windows release and one voice (an `.onnx` file plus its `.onnx.json`, for example `en_US-lessac-medium`), set `tts.piperPath` to `piper.exe` and `tts.piperModel` to the `.onnx` file in `config.json`, restart, and send `!tts engine piper`. `!tts engine windows` switches back.
+
+Nothing typed is saved: each message is turned into speech in a temporary file in `data\tts` and deleted straight away. Who has read-out on is remembered in `state.json`.
+
 ### Nickname filter
 
 The `nickfilter` cog keeps blocked words out of nicknames. Add `"nickfilter"` to `cogs`, restart, add words with `!nickfilter add <word>` and switch it on with `!nickfilter on` (admins only).

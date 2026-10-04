@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.27.0
+- **New `tts` cog: text to speech** (opt-in: add `"tts"` to `cogs`; needs the `audio` cog). `!say <text>` reads a message aloud in your channel; `!tts on` reads everything you type to the bot (private message or its channel, never commands) until `!tts off`, for members who can't talk. "<name> says:" before a new speaker. The bot comes to your channel when it's free, and won't leave music elsewhere. Music in the same channel pauses while it speaks and carries on afterwards (`tts.music` / `!tts music pause|duck`); speech is evened out to a steady loudness. Links become "a link", BBCode is dropped, `tts.maxChars` (250), `tts.cooldownSeconds` (3), up to 5 waiting, optional `tts.allowedGroups`.
+  - Voices: Windows' built-in voices out of the box (`!tts voices`, `!tts voice <name>`, `!tts speed`, `!tts volume`, admins), or Piper for natural offline voices (`tts.piperPath`, `tts.piperModel`, `!tts engine piper`). Typed text reaches the voice engine through an environment variable or stdin, never a command line, and the temporary audio file is deleted straight away.
+- The audio player can now mix speech over music (music ducked to 15%) or play it on its own, and the audio service offers `speakFor`.
+
 ## 0.26.0
 - **Live server name** (in `servertools`): `!servername set <template>` and `!servername on|off|now` keep the server's own name up to date with the same placeholders as live channel names, like `TGSC Gaming | {online} online (record {record})`. Up to 64 characters, renamed at most every `servertools.liveNames.updateSeconds` and only when it changes. Needs `b_virtualserver_modify_name`.
 - **Support channel opener** (in `servertools`): `!support channel <name>`, `!support on|off`, optional `!support names <open> | <closed>` and `!support delay <minutes>` (2). The channel is open while staff (bot admins and the staff groups) are online and not away, and closed (max clients 0) after the last one goes. `!support off` reopens it.

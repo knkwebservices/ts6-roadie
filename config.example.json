@@ -100,6 +100,20 @@
     "exemptGroups": []
   },
 
+  "tts": {
+    "engine": "windows",
+    "voice": "",
+    "rate": 0,
+    "volume": 80,
+    "piperPath": "piper",
+    "piperModel": "",
+    "maxChars": 250,
+    "cooldownSeconds": 3,
+    "allowedGroups": [],
+    "sayName": true,
+    "music": "pause"
+  },
+
   "voteskip": {
     "threshold": 0.5
   },

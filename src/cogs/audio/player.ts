@@ -15,6 +15,8 @@ const LEAD_MS = 40; // how far ahead of the clock we may send (absorbs timer jit
 const MAX_BURST = 4;
 const START_TIMEOUT_MS = 30_000;
 const STALL_TIMEOUT_MS = 20_000;
+/** While someone is being read out (text to speech), the music plays at this fraction of its volume. */
+export const SPEECH_DUCK = 0.15;
 
 export interface PlayInput {
   kind: TrackKind;
@@ -51,6 +53,12 @@ export interface PlayerLike {
   stop(): void;
   pause(): boolean;
   resume(): boolean;
+  /**
+   * Say something over whatever is playing (the music is turned down meanwhile), or on its own if nothing
+   * is. `pcm` is 48 kHz 16-bit stereo, already at the volume it should be heard. Resolves once it has all
+   * been sent (or the player was disposed).
+   */
+  speak(pcm: Buffer): Promise<void>;
   dispose(): void;
 }
 
@@ -66,6 +74,14 @@ function summarizeStderr(s: string): string {
     .filter(Boolean);
   const err = [...lines].reverse().find((l) => /error/i.test(l)) ?? lines[lines.length - 1] ?? '';
   return err.replace(/^ERROR:\s*(\[[^\]]+\]\s*)?/i, '').slice(0, 200);
+}
+
+/** music * duck + speech, in place in `music`. */
+export function mixSpeech(music: Buffer, speech: Buffer, duck = SPEECH_DUCK): void {
+  for (let i = 0; i + 1 < music.length && i + 1 < speech.length; i += 2) {
+    const v = Math.round(music.readInt16LE(i) * duck) + speech.readInt16LE(i);
+    music.writeInt16LE(v > 32767 ? 32767 : v < -32768 ? -32768 : v, i);
+  }
 }
 
 function applyGain(pcm: Buffer, gain: number): void {
@@ -86,9 +102,88 @@ export class Player implements PlayerLike {
   readonly #o: PlayerOptions;
   #encoder?: FrameEncoder;
   #run?: Run;
+  /** Speech still to be sent, and who is waiting for it to finish. */
+  #speech: Buffer = Buffer.alloc(0);
+  #speechWaiters: (() => void)[] = [];
+  #soloTimer?: NodeJS.Timeout;
 
   constructor(options: PlayerOptions) {
     this.#o = options;
+  }
+
+  get hasSpeech(): boolean {
+    return this.#speech.length > 0;
+  }
+
+  /** The next 20 ms of speech (padded with silence at the end), or undefined if there is none. */
+  takeSpeechFrame(): Buffer | undefined {
+    if (!this.#speech.length) return undefined;
+    let frame: Buffer;
+    if (this.#speech.length >= FRAME_BYTES) {
+      frame = Buffer.from(this.#speech.subarray(0, FRAME_BYTES));
+      this.#speech = this.#speech.subarray(FRAME_BYTES);
+    } else {
+      frame = Buffer.alloc(FRAME_BYTES);
+      this.#speech.copy(frame);
+      this.#speech = Buffer.alloc(0);
+    }
+    if (!this.#speech.length) this.#speechDone();
+    return frame;
+  }
+
+  #speechDone(): void {
+    const waiters = this.#speechWaiters;
+    this.#speechWaiters = [];
+    for (const w of waiters) w();
+  }
+
+  speak(pcm: Buffer): Promise<void> {
+    if (!pcm.length) return Promise.resolve();
+    this.#speech = this.#speech.length ? Buffer.concat([this.#speech, pcm]) : Buffer.from(pcm);
+    const done = new Promise<void>((res) => this.#speechWaiters.push(res));
+    this.kickSpeech();
+    return done;
+  }
+
+  /**
+   * Send speech on its own while no music is going out (nothing playing, or paused). While music plays,
+   * the track's own pump mixes the speech in instead.
+   */
+  kickSpeech(): void {
+    if (this.#soloTimer || !this.#speech.length) return;
+    if (this.#run && !this.#run.paused) return;
+    this.#encoder ??= (this.#o.createEncoder ?? createOpusEncoder)(this.#o.bitrate);
+    const enc = this.#encoder;
+    let next = performance.now();
+    let sentAny = false;
+    const tick = (): void => {
+      this.#soloTimer = undefined;
+      if (this.#run && !this.#run.paused) return; // a track started: its pump takes over the speech
+      const now = performance.now();
+      let sent = 0;
+      while (next <= now + LEAD_MS && sent < MAX_BURST) {
+        const frame = this.takeSpeechFrame();
+        if (!frame) break;
+        try {
+          this.#o.send(enc.encode(frame), this.#o.codec);
+        } catch (e) {
+          this.#o.log.warn(`could not send speech: ${(e as Error).message}`);
+          this.#speech = Buffer.alloc(0);
+          this.#speechDone();
+          return;
+        }
+        sentAny = true;
+        next += FRAME_MS;
+        sent++;
+      }
+      if (!this.#speech.length) {
+        if (sentAny) this.#o.send(new Uint8Array(0), this.#o.codec); // end of the transmission
+        return;
+      }
+      if (next < now - 100) next = now;
+      this.#soloTimer = setTimeout(tick, Math.max(1, next - LEAD_MS - performance.now()));
+    };
+    tick();
   }
 
   get playing(): boolean {
@@ -108,6 +203,7 @@ export class Player implements PlayerLike {
       this.#run = new Run(this, this.#o, this.#encoder!, input, (r) => {
         this.#run = undefined;
         resolve(r);
+        this.kickSpeech(); // anything left to say goes out on its own now
       });
     });
   }
@@ -129,6 +225,10 @@ export class Player implements PlayerLike {
   }
 
   dispose(): void {
+    if (this.#soloTimer) clearTimeout(this.#soloTimer);
+    this.#soloTimer = undefined;
+    this.#speech = Buffer.alloc(0);
+    this.#speechDone();
     this.stop();
     this.#encoder?.destroy();
     this.#encoder = undefined;
@@ -232,6 +332,7 @@ class Run {
         this.o.send(new Uint8Array(0), this.o.codec); // stop the "talking" indicator
       }
       this.#nextDue = now;
+      this.player.kickSpeech(); // speech still goes out while the music is paused
       return this.#schedule(50);
     }
 
@@ -273,6 +374,8 @@ class Run {
       }
 
       applyGain(frame, this.player.volume);
+      const speech = this.player.takeSpeechFrame();
+      if (speech) mixSpeech(frame, speech);
       try {
         this.o.send(this.enc.encode(frame), this.o.codec);
       } catch (e) {

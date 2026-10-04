@@ -62,6 +62,8 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
   let pumping = false;
   /** Callers who have claimed the bot but whose track hasn't reached the queue yet. */
   let pending = 0;
+  /** Text to speech being said right now (counts as busy, so the bot is not moved away mid-sentence). */
+  let speaking = 0;
   let nextId = 1;
   let idleTimer: NodeJS.Timeout | undefined;
   let watchTimer: NodeJS.Timeout | undefined;
@@ -100,7 +102,7 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
   // ---- helpers ------------------------------------------------------------------------
 
   const channelName = (id: bigint): string => adapter.channels().find((c) => c.id === id)?.name ?? `#${id}`;
-  const busy = (): boolean => pl().playing || queue.size > 0 || pending > 0;
+  const busy = (): boolean => pl().playing || queue.size > 0 || pending > 0 || speaking > 0;
   const say = (text: string): void => {
     adapter.sendChannel(text).catch((e) => log.debug(`announce failed: ${errMessage(e)}`));
   };
@@ -1097,6 +1099,39 @@ export function createAudioCog(bot: BotApi, deps: AudioDeps = defaultDeps): Cog 
           };
         },
         queue: (ctx, items, opts) => queueRequest(ctx, 'media', async () => items, opts?.label),
+        async speakFor(userId, pcm, opts) {
+          if (!player) return { ok: false, reason: 'The music player is not running.' };
+          const user = await adapter.locateUser(userId);
+          if (!user || user.channelId === 0n) return { ok: false, reason: "I can't tell which channel you're in right now. Try again in a moment." };
+          const refused = await lock.run(async (): Promise<string> => {
+            const here = adapter.selfChannelId();
+            if (user.channelId === here) return '';
+            const freeToMove = autoOnly() && listeners() === 0;
+            if (busy() && !freeToMove) return `I'm busy in "${channelName(here)}" right now. Join me there to be heard, or try again when I'm done.`;
+            if (freeToMove) stopEverything();
+            try {
+              await adapter.moveSelf(user.channelId);
+            } catch (e) {
+              return `I couldn't join your channel (${errMessage(e)}). It may have a password, or I may lack permission there.`;
+            }
+            return '';
+          });
+          if (refused) return { ok: false, reason: refused };
+          const p = player;
+          if (!p) return { ok: false, reason: 'The music player is not running.' };
+          speaking++;
+          cancelIdle();
+          // "pause" mode: stop the music outright while speaking (it carries on afterwards), instead of turning it down
+          const pausedForSpeech = !!opts?.pauseMusic && p.playing && !p.paused && p.pause();
+          try {
+            await p.speak(pcm);
+          } finally {
+            if (pausedForSpeech && player === p && p.paused) p.resume();
+            speaking--;
+            scheduleIdle();
+          }
+          return { ok: true };
+        },
         state() {
           const item = (t: Track): QueueItem => ({ kind: t.kind, title: t.title, url: t.url, durationSec: t.durationSec, auto: t.auto });
           const playing = !!player?.playing;

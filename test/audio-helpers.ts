@@ -46,6 +46,12 @@ export class FakePlayer implements PlayerLike {
     this.paused = false;
     return was;
   }
+  /** Speech handed to the player (text to speech), in order. */
+  spoken: Buffer[] = [];
+  speak(pcm: Buffer) {
+    this.spoken.push(pcm);
+    return Promise.resolve();
+  }
   dispose() {
     this.stop(); // like the real Player: disposing ends whatever is playing
   }
@@ -79,7 +85,7 @@ export interface Rig extends Harness {
 
 const audioEntry = resolve(import.meta.dirname, '../src/cogs/audio/index.ts');
 
-export async function makeRig(configOver: Record<string, unknown> = {}): Promise<Rig> {
+export async function makeRig(configOver: Record<string, unknown> = {}, extraCogs: Record<string, string> = {}): Promise<Rig> {
   const player = new FakePlayer();
   const resolveCalls: string[] = [];
   const radio: RadioListener[] = [];
@@ -132,6 +138,7 @@ export async function makeRig(configOver: Record<string, unknown> = {}): Promise
         import { createAudioCog } from ${JSON.stringify('file://' + audioEntry)};
         export const manifest = { name: 'audiotest', version: '1', description: 'audio with fakes' };
         export default (bot) => createAudioCog(bot, globalThis.__audioDeps);`,
+      ...extraCogs,
     },
   });
   return { ...h, player, radio, resolveCalls, setResolver: (fn) => (resolver = fn), yt };

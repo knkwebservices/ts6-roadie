@@ -305,6 +305,29 @@ export interface Config {
     /** Server groups (by ID) never checked. Bot admins never are. */
     exemptGroups: number[];
   };
+  tts: {
+    /** "windows" (the voices built into Windows, nothing to install) or "piper" (more natural; needs piper.exe and a voice model). */
+    engine: 'windows' | 'piper';
+    /** Windows voice name, like "Microsoft Zira Desktop" (empty = the system default). Change it with !tts voice. */
+    voice: string;
+    /** Windows speaking rate, -10 (slow) to 10 (fast). */
+    rate: number;
+    /** How loud speech is, 0-100 (separate from the music volume). */
+    volume: number;
+    piperPath: string;
+    /** Full path of a Piper voice model (.onnx), for engine "piper". */
+    piperModel: string;
+    /** Longest message read out, in characters. */
+    maxChars: number;
+    /** One message per person per this many seconds. */
+    cooldownSeconds: number;
+    /** Server groups allowed to use it (empty = everyone). Bot admins always can. */
+    allowedGroups: number[];
+    /** Say "<name> says" before a message when the speaker changes. */
+    sayName: boolean;
+    /** Music in the same channel while speaking: "pause" (stops, then carries on) or "duck" (turned right down). */
+    music: 'pause' | 'duck';
+  };
   nickfilter: {
     /** Watch nicknames for blocked words. */
     enabled: boolean;
@@ -431,6 +454,7 @@ export const DEFAULT_CONFIG: Config = {
   modtools: { jailChannel: 'Jail', defaultMinutes: 30, maxMinutes: 10_080, reportCooldownSeconds: 60, keepReports: 100 },
   ipguard: { enabled: false, action: 'warn', moveChannel: 'AFK Room', apiKey: '', vpn: true, clones: false, maxPerIp: 2, countryMode: 'off', countries: [], exemptGroups: [], exemptUids: [] },
   floodguard: { enabled: false, hops: 6, hopSeconds: 30, messages: 6, messageSeconds: 10, action: 'warn', moveChannel: 'AFK Room', quietSeconds: 60, exemptGroups: [] },
+  tts: { engine: 'windows', voice: '', rate: 0, volume: 80, piperPath: 'piper', piperModel: '', maxChars: 250, cooldownSeconds: 3, allowedGroups: [], sayName: true, music: 'pause' },
   nickfilter: { enabled: false, words: [], action: 'warn', moveChannel: 'AFK Room', graceSeconds: 60, exemptGroups: [] },
   follow: { idleReturnSeconds: 120, aloneLeaveSeconds: 60 },
   audio: {
@@ -734,6 +758,18 @@ export function validateConfig(c: Config): Config {
     need(isObject(fg) && typeof fg.moveChannel === 'string' && fg.moveChannel.length <= 100, 'floodguard.moveChannel must be a channel name');
     need(isObject(fg) && Number.isInteger(fg.quietSeconds) && fg.quietSeconds >= 0 && fg.quietSeconds <= 3600, 'floodguard.quietSeconds must be a whole number from 0 to 3600');
     need(isObject(fg) && Array.isArray(fg.exemptGroups) && fg.exemptGroups.every((g) => Number.isInteger(g) && g >= 0), 'floodguard.exemptGroups must be a list of server-group ID numbers');
+    const tt = c.tts;
+    need(isObject(tt) && (tt.engine === 'windows' || tt.engine === 'piper'), 'tts.engine must be "windows" or "piper"');
+    need(isObject(tt) && typeof tt.voice === 'string' && tt.voice.length <= 100, 'tts.voice must be a voice name (or empty)');
+    need(isObject(tt) && Number.isInteger(tt.rate) && (tt.rate as number) >= -10 && (tt.rate as number) <= 10, 'tts.rate must be a whole number from -10 to 10');
+    need(isObject(tt) && Number.isInteger(tt.volume) && (tt.volume as number) >= 0 && (tt.volume as number) <= 100, 'tts.volume must be a whole number from 0 to 100');
+    need(isObject(tt) && typeof tt.piperPath === 'string' && tt.piperPath.trim() !== '', 'tts.piperPath must be the path of piper (or just "piper")');
+    need(isObject(tt) && typeof tt.piperModel === 'string', 'tts.piperModel must be the path of a Piper voice model (or empty)');
+    need(isObject(tt) && Number.isInteger(tt.maxChars) && (tt.maxChars as number) >= 10 && (tt.maxChars as number) <= 1000, 'tts.maxChars must be a whole number from 10 to 1000');
+    need(isObject(tt) && typeof tt.cooldownSeconds === 'number' && tt.cooldownSeconds >= 0 && tt.cooldownSeconds <= 600, 'tts.cooldownSeconds must be from 0 to 600');
+    need(isObject(tt) && Array.isArray(tt.allowedGroups) && tt.allowedGroups.every((g) => Number.isInteger(g) && g > 0), 'tts.allowedGroups must be a list of server-group ID numbers');
+    need(isObject(tt) && typeof tt.sayName === 'boolean', 'tts.sayName must be true or false');
+    need(isObject(tt) && (tt.music === 'pause' || tt.music === 'duck'), 'tts.music must be "pause" or "duck"');
     const n = c.nickfilter;
     need(isObject(n) && typeof n.enabled === 'boolean', 'nickfilter.enabled must be true or false');
     need(isObject(n) && Array.isArray(n.words) && n.words.every((w) => typeof w === 'string' && w.trim().length >= 2 && w.length <= 32), 'nickfilter.words must be a list of words, each 2 to 32 characters');
