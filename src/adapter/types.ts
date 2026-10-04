@@ -77,6 +77,10 @@ export interface TsAdapter {
   moveUser(userId: number, channelId: bigint): Promise<void>;
   /** Rename a channel (needs the server's permission to change channel names). */
   renameChannel(channelId: bigint, name: string): Promise<void>;
+  /** How many people a channel takes: a number (0 closes it to everyone without the ignore-limit permission), or null for no limit. */
+  setChannelMaxClients(channelId: bigint, max: number | null): Promise<void>;
+  /** Rename the virtual server (needs the server's permission to change the server name). */
+  renameServer(name: string): Promise<void>;
   /**
    * Create a temporary channel, which the server deletes by itself once it has been empty for
    * `deleteDelaySec`. Resolves with the new channel's ID. (The server may move the bot into it.)

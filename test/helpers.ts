@@ -93,6 +93,24 @@ export class FakeAdapter implements TsAdapter {
     this.renames.push({ id, name });
     ch.name = name;
   }
+  /** Channel size limits the bot set (null = no limit), and server renames. */
+  maxClients = new Map<bigint, number | null>();
+  limitCalls: { id: bigint; max: number | null }[] = [];
+  failLimit: Error | undefined;
+  async setChannelMaxClients(id: bigint, max: number | null) {
+    if (this.failLimit) throw this.failLimit;
+    if (!this.chans.some((c) => c.id === id)) throw new Error('invalid channelID');
+    this.limitCalls.push({ id, max });
+    this.maxClients.set(id, max);
+  }
+  serverName = 'Test Server';
+  serverRenames: string[] = [];
+  failServerRename: Error | undefined;
+  async renameServer(name: string) {
+    if (this.failServerRename) throw this.failServerRename;
+    this.serverRenames.push(name);
+    this.serverName = name;
+  }
   /** Temporary channels the bot created, and channel groups it handed out. */
   created: { id: bigint; name: string; parentId: bigint; deleteDelaySec: number }[] = [];
   failCreate: Error | undefined;

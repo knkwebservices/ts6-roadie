@@ -7,7 +7,7 @@ import { formatHours, HoursStore } from './hours.js';
 export const manifest: CogManifest = {
   name: 'grouptools',
   version: '1.0.0',
-  description: 'Ranks for time spent online, and protected server groups',
+  description: 'Ranks for time spent online, protected server groups, and moving people by group when they connect',
 };
 
 /** How often time online is counted and ranks and protected groups are checked. */
@@ -43,6 +43,20 @@ export function nextRank(rules: Rule[], seconds: number): Rule | undefined {
   return [...rules].sort((a, b) => a.hours - b.hours).find((r) => seconds < r.hours * 3600);
 }
 
+interface AutoMoveSettings {
+  enabled: boolean;
+  /** First match wins: someone in `group` who connects is moved to `channel` ("#<id>"). */
+  rules: { group: number; channel: string }[];
+}
+
+/** After connecting, ignore the client list for a moment so the people already there are not "connecting". */
+const AUTOMOVE_WARMUP_MS = 2_000;
+
+/** The first auto-move rule for someone with these server groups, or undefined. */
+export function autoMoveRule<R extends { group: number }>(groups: number[], rules: R[]): R | undefined {
+  return rules.find((r) => groups.includes(r.group));
+}
+
 export function createGroupToolsCog(bot: BotApi): Cog {
   const cfg = bot.config.grouptools;
   const p = bot.config.prefix;
@@ -51,6 +65,13 @@ export function createGroupToolsCog(bot: BotApi): Cog {
 
   let ranks = bot.state.get<RankSettings>('grouptools.ranks', { enabled: cfg.ranks.enabled, rules: cfg.ranks.rules });
   let protect = bot.state.get<ProtectSettings>('grouptools.protect', { enabled: cfg.protect.enabled, mode: cfg.protect.mode, groups: cfg.protect.groups });
+
+  let automove = bot.state.get<AutoMoveSettings>('grouptools.automove', { enabled: false, rules: [] });
+  /** Client numbers already seen, to notice people connecting. */
+  let connectedIds = new Set<number>();
+  let amWarm = false;
+  let amWarmTimer: NodeJS.Timeout | undefined;
+  let offReady: (() => void) | undefined;
 
   const hours = new HoursStore(join(bot.dataDir, 'ranks.json'));
   const failedAt = new Map<string, number>();
@@ -319,6 +340,54 @@ export function createGroupToolsCog(bot: BotApi): Cog {
     );
   }
 
+  // ---- moving people by group when they connect ------------------------------------------------------
+
+  const channelByRef = (ref: string) => {
+    const t = ref.trim();
+    const byId = /^#(\d+)$/.exec(t);
+    return byId ? adapter.channels().find((c) => c.id === BigInt(byId[1]!)) : adapter.findChannel(t);
+  };
+  const saveAutoMove = (next: AutoMoveSettings): void => {
+    automove = next;
+    bot.state.set('grouptools.automove', next);
+  };
+
+  function onConnects(): void {
+    const users = adapter.users();
+    if (amWarm && automove.enabled && automove.rules.length) {
+      for (const u of users) {
+        if (connectedIds.has(u.id)) continue;
+        const rule = autoMoveRule(u.groups, automove.rules);
+        if (!rule) continue;
+        const ch = channelByRef(rule.channel);
+        if (!ch) {
+          log.warn(`auto-move: there is no channel ${rule.channel} for server group ${rule.group}`);
+          continue;
+        }
+        if (u.channelId === ch.id) continue;
+        adapter
+          .moveUser(u.id, ch.id)
+          .then(() => {
+            log.info(`auto-move: ${u.name} (server group ${rule.group}) connected; moved to "${ch.name}"`);
+            tell(u, `Welcome! I moved you to "${ch.name}".`);
+          })
+          .catch((e) => log.warn(`auto-move: could not move ${u.name} to "${ch.name}": ${errMessage(e)}`));
+      }
+    }
+    connectedIds = new Set(users.map((u) => u.id));
+  }
+
+  function amWarmup(): void {
+    amWarm = false;
+    connectedIds = new Set(adapter.users().map((u) => u.id));
+    if (amWarmTimer) clearTimeout(amWarmTimer);
+    amWarmTimer = setTimeout(() => {
+      connectedIds = new Set(adapter.users().map((u) => u.id));
+      amWarm = true;
+    }, AUTOMOVE_WARMUP_MS);
+    amWarmTimer.unref?.();
+  }
+
   const cog: Cog = {
     commands: [
       {
@@ -474,11 +543,66 @@ export function createGroupToolsCog(bot: BotApi): Cog {
           return ctx.reply(`Usage: ${p}protect [on|off|mode warn|remove|add <group ID>|remove <group ID>|allow <group ID> <name>|disallow <group ID> <name>]`);
         },
       },
+      {
+        name: 'automove',
+        description: `Move people by server group when they connect: ${p}automove [on|off|add <group ID> | <channel>|remove <n>] (bot admins only)`,
+        usage: `${p}automove [on|off|add <group ID> | <channel>|remove <n>]`,
+        perm: 'admin',
+        run: async (ctx) => {
+          const sub = ctx.args[0]?.toLowerCase();
+          const line = (r: AutoMoveSettings['rules'][number], i: number): string => {
+            const ch = channelByRef(r.channel);
+            return `${i + 1}. server group ${r.group} -> ${ch ? `"${ch.name}"` : `${r.channel} (I cannot find this channel!)`}`;
+          };
+          if (!sub || sub === 'status' || sub === 'list') {
+            return ctx.reply(
+              [
+                `Auto-move on connect is ${automove.enabled ? 'on' : 'off'}.`,
+                automove.rules.length ? `Rules (the first that fits wins):\n${automove.rules.map(line).join('\n')}` : `No rules yet: ${p}automove add <group ID> | <channel>`,
+                `Only people connecting are moved, never people already online or moving around. (Find a group's ID with ${p}whoami.)`,
+              ].join('\n'),
+            );
+          }
+          if (sub === 'on') {
+            if (!automove.rules.length) return ctx.reply(`Add a rule first: ${p}automove add 14 | Fallout 76`);
+            saveAutoMove({ ...automove, enabled: true });
+            return ctx.reply('Auto-move on connect is on.');
+          }
+          if (sub === 'off') {
+            saveAutoMove({ ...automove, enabled: false });
+            return ctx.reply('Auto-move on connect is off.');
+          }
+          if (sub === 'add') {
+            const body = ctx.rest.trim().slice('add'.length).trim();
+            const m = /^(\d+)\s*\|?\s*(.+)$/.exec(body);
+            if (!m) return ctx.reply(`Usage: ${p}automove add <server group ID> | <channel>, like ${p}automove add 14 | Fallout 76`);
+            const group = Number(m[1]);
+            const ch = channelByRef(m[2]!);
+            if (!ch) return ctx.reply(`I cannot find a channel called "${m[2]!.trim()}".`);
+            if (automove.rules.length >= MAX_RULES) return ctx.reply(`That's the most rules I keep (${MAX_RULES}). Remove one first.`);
+            const rules = [...automove.rules.filter((r) => r.group !== group), { group, channel: `#${ch.id}` }];
+            saveAutoMove({ ...automove, rules });
+            return ctx.reply(`People in server group ${group} who connect will be moved to "${ch.name}".${automove.enabled ? '' : ` It's off for now: ${p}automove on starts it.`}`);
+          }
+          if (sub === 'remove') {
+            const n = Number(ctx.args[1]);
+            if (!Number.isInteger(n) || n < 1 || n > automove.rules.length) return ctx.reply(`Give the number from ${p}automove, like: ${p}automove remove 1`);
+            const gone = automove.rules[n - 1]!;
+            saveAutoMove({ ...automove, rules: automove.rules.filter((_, i) => i !== n - 1) });
+            return ctx.reply(`Server group ${gone.group} is no longer moved on connect.`);
+          }
+          return ctx.reply(`Usage: ${p}automove [on|off|add <group ID> | <channel>|remove <n>]`);
+        },
+      },
     ],
 
     onLoad() {
+      connectedIds = new Set(adapter.users().map((u) => u.id));
+      amWarm = adapter.connected;
+      offReady = bot.events.on('ready', amWarmup);
       lastTick = Date.now();
       offDirectory = adapter.events.on('directory', () => {
+        onConnects();
         // someone joined or moved: look at newcomers now (everyone else is looked at by the minute-by-minute check)
         if (protect.enabled || ranks.enabled) void check();
       });
@@ -488,12 +612,14 @@ export function createGroupToolsCog(bot: BotApi): Cog {
 
     onUnload() {
       offDirectory?.();
+      offReady?.();
+      if (amWarmTimer) clearTimeout(amWarmTimer);
       if (timer) clearInterval(timer);
       safeSave();
     },
 
     status: () =>
-      `Ranks ${ranks.enabled ? `on (${ranks.rules.length})` : 'off'} | protection ${protect.enabled ? `${protect.mode} (${protect.groups.length} group${protect.groups.length === 1 ? '' : 's'})` : 'off'}`,
+      `Ranks ${ranks.enabled ? `on (${ranks.rules.length})` : 'off'} | protection ${protect.enabled ? `${protect.mode} (${protect.groups.length} group${protect.groups.length === 1 ? '' : 's'})` : 'off'} | auto-move ${automove.enabled ? `on (${automove.rules.length})` : 'off'}`,
   };
   return cog;
 }

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.26.0
+- **Live server name** (in `servertools`): `!servername set <template>` and `!servername on|off|now` keep the server's own name up to date with the same placeholders as live channel names, like `TGSC Gaming | {online} online (record {record})`. Up to 64 characters, renamed at most every `servertools.liveNames.updateSeconds` and only when it changes. Needs `b_virtualserver_modify_name`.
+- **Support channel opener** (in `servertools`): `!support channel <name>`, `!support on|off`, optional `!support names <open> | <closed>` and `!support delay <minutes>` (2). The channel is open while staff (bot admins and the staff groups) are online and not away, and closed (max clients 0) after the last one goes. `!support off` reopens it.
+- **Always one empty channel** (in `rooms`): `!rooms spare under <channel>`, `name <template with {n}>`, `max <n>` and `on|off` keep numbered permanent channels with exactly one empty; extra empty ones go after 30 seconds. Only the bot's own spare channels are ever removed, and switching it off tidies the empty ones away.
+- **Channel name filter** (in `nickfilter`): `!channelfilter on|off|action rename|delete|name <text>|check` renames (or, in delete mode, removes if empty) channels whose names have a blocked word from the `!nickfilter` list. Channels that already match when it's switched on are left alone and listed; numbers aren't read as letters in channel names.
+- **Auto-move on connect** (in `grouptools`): `!automove add <group ID> | <channel>`, `!automove on|off|remove <n>` moves people in a server group to a channel when they connect (first matching rule wins). People already online and people moving around are left alone.
+- No new cogs and no config changes: everything is in cogs you may already run (`servertools`, `rooms`, `nickfilter`, `grouptools`) and is off until switched on.
+- The adapter can now set a channel's maximum clients and rename the server (`setChannelMaxClients`, `renameServer`).
+- **Fix: deploys no longer roll back just because NSSM answers "SERVICE_START_PENDING".** The new release now always gets the full health wait (`--health-timeout`, 90 s); it only rolls back if the bot doesn't report in. (Takes effect from the deploy after this one, since a deploy runs the script of the release already installed.)
+- **Fix: the bot now sees people move in channels made after it connected.** It only subscribed to the channels that existed when it connected, so moves in and out of newer channels (like ones the bot makes itself) could be missed, leaving it with a wrong idea of who is where until it reconnected. It now subscribes to new channels as they appear, and every 20 seconds (and after a new channel appears) checks the client list with the server and corrects it, logging a line when it had to.
+
 ## 0.25.0
 - **New `privchannels` cog** (opt-in, both parts off until switched on):
   - **Private channels:** join "Get a Channel" (`privchannels.claimChannel`, or `!privchannels claim <channel>`) to get a permanent channel of your own, with channel admin (`ownerChannelGroup`, 5). One per person; joining again or `!mychannel` (everyone) takes you back; `!mychannel giveup` removes it. Admins: `!privchannels on|off|claim|under|name|list|remove`. At most `maxChannels` (100).

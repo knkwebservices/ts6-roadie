@@ -9,7 +9,7 @@ import { SeenStore, type SeenEntry } from './seen.js';
 export const manifest: CogManifest = {
   name: 'servertools',
   version: '1.0.0',
-  description: 'Support notifier, live channel names, !seen and the online record',
+  description: 'Support notifier, live channel and server names, the support channel opener, !seen and the online record',
 };
 
 /** After connecting, ignore the client list for a moment so the people already there do not count as "joining". */
@@ -23,6 +23,10 @@ const RENAME_RETRY_MS = 5 * 60_000;
 const MAX_RULES = 20;
 const MAX_LIVE = 10;
 const MAX_MATCHES_SHOWN = 5;
+/** The longest server name the bot sets (TeamSpeak's limit). */
+export const MAX_SERVER_NAME = 64;
+/** After a failed server rename or support-channel change, wait this long before trying again. */
+const AUTO_RETRY_MS = 60_000;
 
 interface NotifySettings {
   enabled: boolean;
@@ -33,6 +37,24 @@ interface NotifySettings {
 interface LiveSettings {
   enabled: boolean;
   channels: { channelId: number; template: string }[];
+}
+
+/** The server's own name, kept up to date like a live channel name. */
+interface ServerNameSettings {
+  enabled: boolean;
+  template: string;
+}
+
+/** A channel that is open while staff are online and closed (no room for anyone) when none are. */
+interface SupportSettings {
+  enabled: boolean;
+  /** "#<id>". */
+  channel: string;
+  /** Optional names to switch between (both empty = the name is left alone). */
+  openName: string;
+  closedName: string;
+  /** Minutes to wait after the last staff member leaves (or goes away) before closing. */
+  delayMinutes: number;
 }
 
 interface OnlineRecord {
@@ -59,6 +81,11 @@ export function createServerToolsCog(bot: BotApi): Cog {
   let staffGroups = bot.state.get<number[]>('servertools.staffGroups', cfg.staffGroups);
   /** Bot admins and members of the staff groups who are online now. */
   const staffOnline = (users: TsUser[] = adapter.users()): TsUser[] => users.filter((u) => bot.isAdmin(u.uid) || u.groups.some((g) => staffGroups.includes(g)));
+
+  let serverName = bot.state.get<ServerNameSettings>('servertools.serverName', { enabled: false, template: '' });
+  let support = bot.state.get<SupportSettings>('servertools.support', { enabled: false, channel: '', openName: '', closedName: '', delayMinutes: 2 });
+  /** Staff who count for the support channel: online and not set to away. */
+  const staffHere = (): TsUser[] => staffOnline().filter((u) => !u.away);
 
   const seen = new SeenStore(join(bot.dataDir, 'seen.json'));
   const liveTrack = new Map<number, LiveTrack>();
@@ -214,6 +241,82 @@ export function createServerToolsCog(bot: BotApi): Cog {
     return result;
   }
 
+  // ---- the server name ----------------------------------------------------------------------------
+
+  const snTrack: { last?: string; lastAt?: number; failedAt?: number; lastError?: string } = {};
+  let snBusy = false;
+
+  /** Rename the server if its live name is out of date. Returns an error message, or '' if all is well. */
+  async function serverNameTick(force = false): Promise<string> {
+    if ((!serverName.enabled && !force) || !serverName.template || snBusy || !adapter.connected) return '';
+    const want = renderLiveName(serverName.template, liveValues(), MAX_SERVER_NAME);
+    if (want === snTrack.last && !force) return '';
+    const now = Date.now();
+    if (!force) {
+      if (snTrack.lastAt !== undefined && now - snTrack.lastAt < cfg.liveNames.updateSeconds * 1000) return '';
+      if (snTrack.failedAt !== undefined && now - snTrack.failedAt < Math.max(AUTO_RETRY_MS * 5, cfg.liveNames.updateSeconds * 1000)) return '';
+    }
+    snBusy = true;
+    snTrack.lastAt = now;
+    try {
+      await adapter.renameServer(want);
+      snTrack.last = want;
+      snTrack.failedAt = undefined;
+      snTrack.lastError = undefined;
+      log.debug(`server name is now "${want}"`);
+      return '';
+    } catch (e) {
+      const why = errMessage(e);
+      snTrack.failedAt = now;
+      if (snTrack.lastError !== why) log.warn(`could not rename the server to "${want}": ${why}`);
+      snTrack.lastError = why;
+      return why;
+    } finally {
+      snBusy = false;
+    }
+  }
+
+  // ---- the support channel opener -------------------------------------------------------------------
+
+  const supTrack: { applied?: 'open' | 'closed'; lastStaffAt: number; failedAt?: number; lastError?: string; warned?: string } = { lastStaffAt: 0 };
+  let supBusy = false;
+
+  /** Open the support channel while staff are about, close it a while after the last one goes. Returns an error message or ''. */
+  async function supportTick(force = false): Promise<string> {
+    if (!support.enabled || !support.channel || supBusy || !adapter.connected) return '';
+    const ch = resolveChannel(support.channel);
+    if (!ch) {
+      if (supTrack.warned !== support.channel) log.warn(`support channel: there is no channel ${support.channel} any more`);
+      supTrack.warned = support.channel;
+      return `I cannot find the support channel (${support.channel}).`;
+    }
+    const now = Date.now();
+    if (staffHere().length) supTrack.lastStaffAt = now;
+    const open = supTrack.lastStaffAt > 0 && now - supTrack.lastStaffAt < support.delayMinutes * 60_000 + 1;
+    const want = open ? 'open' : 'closed';
+    if (supTrack.applied === want && !force) return '';
+    if (!force && supTrack.failedAt !== undefined && now - supTrack.failedAt < AUTO_RETRY_MS) return '';
+    supBusy = true;
+    try {
+      await adapter.setChannelMaxClients(ch.id, open ? null : 0);
+      const name = open ? support.openName : support.closedName;
+      if (name && ch.name !== name) await adapter.renameChannel(ch.id, name);
+      supTrack.applied = want;
+      supTrack.failedAt = undefined;
+      supTrack.lastError = undefined;
+      log.info(`support channel "${name || ch.name}" is ${want}`);
+      return '';
+    } catch (e) {
+      const why = errMessage(e);
+      supTrack.failedAt = now;
+      if (supTrack.lastError !== why) log.warn(`could not ${open ? 'open' : 'close'} the support channel: ${why}`);
+      supTrack.lastError = why;
+      return why;
+    } finally {
+      supBusy = false;
+    }
+  }
+
   // ---- watching the client list -------------------------------------------------------------------
 
   function onDirectory(): void {
@@ -221,6 +324,7 @@ export function createServerToolsCog(bot: BotApi): Cog {
     noteRecord(users.length);
     refreshSeen(users);
     if (warm) checkArrivals(users);
+    if (support.enabled) void supportTick();
     whereWas = new Map(users.map((u) => [u.id, u.channelId]));
   }
 
@@ -244,6 +348,14 @@ export function createServerToolsCog(bot: BotApi): Cog {
   const saveLive = (next: LiveSettings): void => {
     live = next;
     bot.state.set('servertools.liveNames', next);
+  };
+  const saveServerName = (next: ServerNameSettings): void => {
+    serverName = next;
+    bot.state.set('servertools.serverName', next);
+  };
+  const saveSupport = (next: SupportSettings): void => {
+    support = next;
+    bot.state.set('servertools.support', next);
   };
 
   const when = (ms: number): string => new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -487,6 +599,123 @@ export function createServerToolsCog(bot: BotApi): Cog {
           return ctx.reply(`Usage: ${p}livename [on|off|add <channel or #id> | <template>|remove <n>|now]`);
         },
       },
+      {
+        name: 'servername',
+        description: `Keep the server's name up to date, like "TGSC | 12 online (record 30)": ${p}servername [on|off|set <template>|now] (bot admins only)`,
+        usage: `${p}servername [on|off|set <template>|now]`,
+        perm: 'admin',
+        run: async (ctx) => {
+          const sub = ctx.args[0]?.toLowerCase();
+          if (!sub || sub === 'status') {
+            const lines = [
+              `The live server name is ${serverName.enabled ? `on (updated at most every ${cfg.liveNames.updateSeconds}s)` : 'off'}.`,
+              serverName.template ? `Template: ${serverName.template}\nRight now that is: ${renderLiveName(serverName.template, liveValues(), MAX_SERVER_NAME)}` : `No template yet: ${p}servername set TGSC Gaming | {online} online (record {record})`,
+              snTrack.lastError ? `The last try failed: ${snTrack.lastError}. My server group needs permission to change the server name (b_virtualserver_modify_name).` : '',
+              `You can use {online}, {record}, {song}, {staff}, {staffnames}, {time} and {date}. Up to ${MAX_SERVER_NAME} characters.`,
+            ];
+            return ctx.reply(lines.filter(Boolean).join('\n'));
+          }
+          if (sub === 'set') {
+            const t = ctx.rest.slice('set'.length).trim();
+            if (!t || t.length > 100) return ctx.reply(`Give the name to use, up to 100 characters before it's filled in: ${p}servername set TGSC Gaming | {online} online (record {record})`);
+            if (!/\{(online|record|song|staff|staffnames|time|date)\}/i.test(t)) return ctx.reply('Put at least one of {online}, {record}, {song}, {staff}, {staffnames}, {time} or {date} in it, or there is nothing to keep up to date. (To just rename the server, do it in TeamSpeak.)');
+            saveServerName({ ...serverName, template: t });
+            snTrack.last = undefined;
+            const preview = renderLiveName(t, liveValues(), MAX_SERVER_NAME);
+            if (serverName.enabled) {
+              const err = await serverNameTick(true);
+              return ctx.reply(err ? `Saved, but I could not rename the server: ${err}` : `The server is now named: ${preview}`);
+            }
+            return ctx.reply(`The server will be named like: ${preview}\nIt's off for now: ${p}servername on starts it.`);
+          }
+          if (sub === 'on' || sub === 'now') {
+            if (!serverName.template) return ctx.reply(`Set the template first: ${p}servername set TGSC Gaming | {online} online (record {record})`);
+            if (sub === 'on') saveServerName({ ...serverName, enabled: true });
+            const err = await serverNameTick(true);
+            if (err) return ctx.reply(`I could not rename the server: ${err}. Does my server group have b_virtualserver_modify_name?`);
+            return ctx.reply(sub === 'on' ? `The live server name is on. It's now: ${snTrack.last}` : `The server is named: ${snTrack.last}`);
+          }
+          if (sub === 'off') {
+            saveServerName({ ...serverName, enabled: false });
+            return ctx.reply(`The live server name is off. The server keeps its current name${snTrack.last ? ` ("${snTrack.last}")` : ''}; rename it in TeamSpeak if you want it back.`);
+          }
+          return ctx.reply(`Usage: ${p}servername [on|off|set <template>|now]`);
+        },
+      },
+      {
+        name: 'support',
+        aliases: ['supportchannel'],
+        description: `Open the support channel only while staff are online: ${p}support [on|off|channel <name>|names <open> | <closed>|delay <minutes>] (bot admins only)`,
+        usage: `${p}support [on|off|channel <name>|names <open name> | <closed name>|names off|delay <minutes>]`,
+        perm: 'admin',
+        run: async (ctx) => {
+          const sub = ctx.args[0]?.toLowerCase();
+          const ch = support.channel ? resolveChannel(support.channel) : undefined;
+          if (!sub || sub === 'status') {
+            const staff = staffHere();
+            const lines = [
+              `The support channel opener is ${support.enabled ? 'on' : 'off'}.`,
+              support.channel ? `Channel: ${ch ? `"${ch.name}"` : `${support.channel} (I cannot find this channel!)`}${support.enabled && supTrack.applied ? `, ${supTrack.applied} now` : ''}.` : `No channel yet: ${p}support channel <name>`,
+              `Staff here now (online and not away): ${staff.length ? staff.map((u) => u.name).join(', ') : 'none'}.`,
+              `It closes ${support.delayMinutes ? `${support.delayMinutes} minute${support.delayMinutes === 1 ? '' : 's'}` : 'right away'} after the last staff member leaves or goes away. Closed means nobody can join (people with the ignore-limit permission, like server admins, still can; anyone inside stays).`,
+              support.openName || support.closedName ? `Names: "${support.openName || '(unchanged)'}" when open, "${support.closedName || '(unchanged)'}" when closed.` : `The name stays the same. Optional: ${p}support names Support | Support (closed)`,
+              supTrack.lastError ? `The last try failed: ${supTrack.lastError}` : '',
+            ];
+            return ctx.reply(lines.filter(Boolean).join('\n'));
+          }
+          if (sub === 'channel') {
+            const want = ctx.rest.slice('channel'.length).trim();
+            const found = resolveChannel(want);
+            if (!found) return ctx.reply(`I cannot find a channel called "${want}".`);
+            saveSupport({ ...support, channel: `#${found.id}` });
+            supTrack.applied = undefined;
+            if (support.enabled) await supportTick(true);
+            return ctx.reply(`The support channel is "${found.name}".${support.enabled ? '' : ` ${p}support on starts opening and closing it.`}`);
+          }
+          if (sub === 'names') {
+            const body = ctx.rest.slice('names'.length).trim();
+            if (body.toLowerCase() === 'off') {
+              saveSupport({ ...support, openName: '', closedName: '' });
+              return ctx.reply('The support channel keeps whatever name it has now.');
+            }
+            const bar = body.indexOf('|');
+            const open = bar < 0 ? '' : body.slice(0, bar).trim();
+            const closed = bar < 0 ? '' : body.slice(bar + 1).trim();
+            if (!open || !closed || open.length > MAX_CHANNEL_NAME || closed.length > MAX_CHANNEL_NAME || open.toLowerCase() === closed.toLowerCase())
+              return ctx.reply(`Give two different names (up to ${MAX_CHANNEL_NAME} characters each): ${p}support names Support | Support (closed)`);
+            saveSupport({ ...support, openName: open, closedName: closed });
+            if (support.enabled) await supportTick(true);
+            return ctx.reply(`The channel is called "${open}" when open and "${closed}" when closed.`);
+          }
+          if (sub === 'delay') {
+            const n = Number(ctx.args[1]);
+            if (!Number.isInteger(n) || n < 0 || n > 120) return ctx.reply(`Give minutes from 0 to 120: ${p}support delay 2`);
+            saveSupport({ ...support, delayMinutes: n });
+            return ctx.reply(`It closes ${n ? `${n} minute${n === 1 ? '' : 's'}` : 'right away'} after the last staff member leaves or goes away.`);
+          }
+          if (sub === 'on') {
+            if (!ch) return ctx.reply(`Pick the channel first: ${p}support channel <name>`);
+            saveSupport({ ...support, enabled: true });
+            supTrack.applied = undefined;
+            const err = await supportTick(true);
+            if (err) return ctx.reply(`It's on, but I could not change "${ch.name}": ${err}. My server group needs permission to edit that channel (its max clients${support.openName ? ' and name' : ''}).`);
+            return ctx.reply(`The support channel opener is on. "${resolveChannel(support.channel)?.name ?? ch.name}" is ${supTrack.applied} now (staff here: ${staffHere().length}).`);
+          }
+          if (sub === 'off') {
+            saveSupport({ ...support, enabled: false });
+            supTrack.applied = undefined;
+            if (!ch) return ctx.reply('The support channel opener is off.');
+            try {
+              await adapter.setChannelMaxClients(ch.id, null);
+              if (support.openName && ch.name !== support.openName) await adapter.renameChannel(ch.id, support.openName);
+              return ctx.reply(`The support channel opener is off, and "${support.openName || ch.name}" is open to everyone.`);
+            } catch (e) {
+              return ctx.reply(`The opener is off, but I could not reopen "${ch.name}": ${errMessage(e)}. Remove its max clients limit in TeamSpeak.`);
+            }
+          }
+          return ctx.reply(`Usage: ${p}support [on|off|channel <name>|names <open name> | <closed name>|names off|delay <minutes>]`);
+        },
+      },
     ],
 
     onLoad() {
@@ -507,7 +736,11 @@ export function createServerToolsCog(bot: BotApi): Cog {
         refreshSeen([]);
         safeSave();
       });
-      liveTimer = setInterval(() => void liveTick(), LIVE_TICK_MS);
+      liveTimer = setInterval(() => {
+        void liveTick();
+        void serverNameTick();
+        void supportTick();
+      }, LIVE_TICK_MS);
       liveTimer.unref?.();
       seenTimer = setInterval(() => {
         if (adapter.connected) refreshSeen(adapter.users());
@@ -529,7 +762,7 @@ export function createServerToolsCog(bot: BotApi): Cog {
     },
 
     status: () =>
-      `Notifier ${notify.enabled ? `on (${notify.rules.length} channel${notify.rules.length === 1 ? '' : 's'})` : 'off'} | live names ${live.enabled ? `on (${live.channels.length})` : 'off'} | seen ${cfg.seen.enabled ? `${seen.size} people` : 'off'} | record ${record.count}`,
+      `Notifier ${notify.enabled ? `on (${notify.rules.length} channel${notify.rules.length === 1 ? '' : 's'})` : 'off'} | live names ${live.enabled ? `on (${live.channels.length})` : 'off'} | seen ${cfg.seen.enabled ? `${seen.size} people` : 'off'} | record ${record.count} | server name ${serverName.enabled ? 'live' : 'off'} | support channel ${support.enabled ? supTrack.applied ?? 'on' : 'off'}`,
   };
   return cog;
 }

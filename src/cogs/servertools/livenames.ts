@@ -34,7 +34,7 @@ const shorten = (s: string, room: number): string => (room >= 4 ? `${s.slice(0, 
  * Fill in a live name template, then make it fit: TeamSpeak allows at most 40 characters, so a long
  * song title (then a long staff list) is shortened with "..." (and the whole name is cut, as a last resort).
  */
-export function renderLiveName(template: string, v: LiveValues): string {
+export function renderLiveName(template: string, v: LiveValues, max = MAX_CHANNEL_NAME): string {
   const fill = (song: string, names: string): string =>
     template
       .replace(/\{online\}/gi, String(v.online))
@@ -48,15 +48,15 @@ export function renderLiveName(template: string, v: LiveValues): string {
   let song = v.song.trim() || '-';
   let names = (v.staffNames ?? '').trim() || 'none';
   let out = fill(song, names);
-  if (out.length > MAX_CHANNEL_NAME && /\{song\}/i.test(template)) {
+  if (out.length > max && /\{song\}/i.test(template)) {
     // Only the song part shrinks, so "Now playing: " and the like stay readable.
-    song = shorten(song, MAX_CHANNEL_NAME - fill('', names).length);
+    song = shorten(song, max - fill('', names).length);
     out = fill(song, names);
   }
-  if (out.length > MAX_CHANNEL_NAME && /\{staffnames\}/i.test(template)) {
-    names = shorten(names, MAX_CHANNEL_NAME - fill(song, '').length);
+  if (out.length > max && /\{staffnames\}/i.test(template)) {
+    names = shorten(names, max - fill(song, '').length);
     out = fill(song, names);
   }
-  if (out.length > MAX_CHANNEL_NAME) out = out.slice(0, MAX_CHANNEL_NAME);
+  if (out.length > max) out = out.slice(0, max);
   return out.trim() ? out : '-';
 }

@@ -5,7 +5,7 @@ import { errMessage, formatAgo } from '../../util/text.js';
 export const manifest: CogManifest = {
   name: 'rooms',
   version: '1.0.0',
-  description: 'Temporary channels: join "Create a Room" and get a private channel of your own',
+  description: 'Temporary channels: join "Create a Room" and get a private channel of your own; or always keep one empty channel free',
 };
 
 /** TeamSpeak refuses channel names longer than this. */
@@ -14,6 +14,44 @@ const MAX_NAME = 40;
 const NAG_MS = 15_000;
 /** Forget rooms the server has deleted, and room records older than this even if something went wrong. */
 const RECORD_KEEP_MS = 7 * 86_400_000;
+/** An extra empty spare channel is removed once it has been empty this long (so people moving about don't make channels come and go). */
+export const SPARE_GRACE_MS = 30_000;
+/** How often the spare channels are looked at, besides whenever someone moves. */
+const SPARE_TICK_MS = 10_000;
+/** After failing to make or remove a spare channel, wait this long before trying again. */
+const SPARE_RETRY_MS = 60_000;
+
+/** "Always one empty channel": numbered public channels under one parent, with exactly one of them empty. */
+interface SpareSettings {
+  enabled: boolean;
+  /** "#<id>" of the channel they go under. */
+  parent: string;
+  /** Name with {n}, like "Squad {n}". */
+  template: string;
+  max: number;
+}
+
+/** What to do with the spare channels: make one numbered `make`, and/or remove `remove` (channel numbers as text). */
+export function planSpares(
+  spares: { id: string; n: number; occupied: boolean; emptySince?: number }[],
+  opts: { max: number; now: number; graceMs?: number },
+): { make?: number; remove: string[] } {
+  const grace = opts.graceMs ?? SPARE_GRACE_MS;
+  const empty = spares.filter((x) => !x.occupied).sort((a, b) => a.n - b.n);
+  const out: { make?: number; remove: string[] } = { remove: [] };
+  if (!empty.length) {
+    if (spares.length < opts.max) {
+      const used = new Set(spares.map((x) => x.n));
+      let n = 1;
+      while (used.has(n)) n++;
+      out.make = n;
+    }
+    return out;
+  }
+  // keep the lowest-numbered empty one, remove the rest once they have been empty a while
+  for (const x of empty.slice(1)) if (x.emptySince !== undefined && opts.now - x.emptySince >= grace) out.remove.push(x.id);
+  return out;
+}
 
 interface RoomSettings {
   enabled: boolean;
@@ -68,6 +106,16 @@ export function createRoomsCog(bot: BotApi): Cog {
   const busy = new Set<string>();
   const lastMade = new Map<string, number>();
   const lastNag = new Map<string, number>();
+  let spare = bot.state.get<SpareSettings>('rooms.spare', { enabled: false, parent: '', template: 'Room {n}', max: 10 });
+  /** Spare channels the bot made: channel number (as text) -> its number in the name. */
+  const spareIds = (): Record<string, number> => bot.state.get<Record<string, number>>('rooms.spareIds', {});
+  const emptySince = new Map<string, number>();
+  /** Spare channels made in the last moments, which the client list may not show yet (not to be forgotten as "gone"). */
+  const justMade = new Map<string, number>();
+  let spareBusy = false;
+  let spareFailedAt = 0;
+  let spareError = '';
+  let spareTimer: NodeJS.Timeout | undefined;
   let warnedMissing = '';
   let warnedGroup = '';
   let offDirectory: (() => void) | undefined;
@@ -217,6 +265,167 @@ export function createRoomsCog(bot: BotApi): Cog {
     if (lastMade.size > 500) for (const [k, t] of lastMade) if (Date.now() - t > cfg.cooldownSeconds * 1000) lastMade.delete(k);
   }
 
+  // ---- always one empty channel ---------------------------------------------------------------------
+
+  const spareName = (n: number): string => spare.template.replace(/\{n\}/gi, String(n)).slice(0, MAX_NAME);
+
+  /** Put the bot back if the server moved it into a channel it just made. */
+  async function returnBot(botWas: bigint, name: string): Promise<void> {
+    if (botWas === 0n || adapter.selfChannelId() === botWas) return;
+    const home = bot.config.server.homeChannel ? adapter.findChannel(bot.config.server.homeChannel) : undefined;
+    const pw = home && home.id === botWas ? bot.config.server.homeChannelPassword : '';
+    try {
+      await adapter.moveSelf(botWas, pw);
+    } catch (e) {
+      log.warn(`the server moved me into "${name}" and I could not go back: ${errMessage(e)}`);
+    }
+  }
+
+  async function spareTick(): Promise<void> {
+    if (spareBusy || !adapter.connected) return;
+    const ids = spareIds();
+    if (!spare.enabled && !Object.keys(ids).length) return;
+    const now = Date.now();
+    if (now - spareFailedAt < SPARE_RETRY_MS) return;
+    spareBusy = true;
+    try {
+      // forget channels that are gone (deleted in TeamSpeak)
+      for (const [id, t] of justMade) if (now - t > 15_000) justMade.delete(id);
+      const alive = Object.fromEntries(Object.entries(ids).filter(([id]) => channelById(BigInt(id)) || justMade.has(id)));
+      if (Object.keys(alive).length !== Object.keys(ids).length) bot.state.set('rooms.spareIds', alive);
+      const occupied = new Set(adapter.users().map((u) => String(u.channelId)));
+      if (adapter.selfChannelId() !== 0n) occupied.add(String(adapter.selfChannelId()));
+      const list = Object.entries(alive).map(([id, n]) => {
+        const busy = occupied.has(id) || adapter.channels().some((c) => String(c.parentId) === id);
+        if (busy) emptySince.delete(id);
+        else if (!emptySince.has(id)) emptySince.set(id, now);
+        return { id, n, occupied: busy, emptySince: emptySince.get(id) };
+      });
+
+      // switched off: tidy up every empty spare, and forget the ones in use
+      if (!spare.enabled) {
+        const keep: Record<string, number> = {};
+        for (const x of list) {
+          if (x.occupied) {
+            keep[x.id] = x.n; // removed once it empties
+            continue;
+          }
+          try {
+            await adapter.deleteChannel(BigInt(x.id));
+            log.info(`removed spare channel "${channelById(BigInt(x.id))?.name ?? x.id}" (spare channels are off)`);
+          } catch (e) {
+            log.warn(`could not remove spare channel #${x.id}: ${errMessage(e)}`);
+            keep[x.id] = x.n;
+          }
+        }
+        bot.state.set('rooms.spareIds', keep);
+        return;
+      }
+
+      const parent = resolveChannel(spare.parent);
+      if (!parent) {
+        if (warnedMissing !== `spare:${spare.parent}`) log.warn(`spare channels: there is no channel ${spare.parent} to put them under`);
+        warnedMissing = `spare:${spare.parent}`;
+        return;
+      }
+      const plan = planSpares(list, { max: spare.max, now });
+      for (const id of plan.remove) {
+        try {
+          await adapter.deleteChannel(BigInt(id));
+          const rest = { ...spareIds() };
+          delete rest[id];
+          bot.state.set('rooms.spareIds', rest);
+          emptySince.delete(id);
+          log.info(`removed extra empty channel #${id}`);
+        } catch (e) {
+          spareFailedAt = now;
+          spareError = errMessage(e);
+          log.warn(`could not remove extra empty channel #${id}: ${spareError}`);
+        }
+      }
+      if (plan.make !== undefined) {
+        const siblings = adapter.channels().filter((c) => c.parentId === parent.id).map((c) => c.name);
+        const name = uniqueName(spareName(plan.make), siblings);
+        const botWas = adapter.selfChannelId();
+        try {
+          const id = await adapter.createPermanentChannel({ name, parentId: parent.id });
+          bot.state.set('rooms.spareIds', { ...spareIds(), [String(id)]: plan.make });
+          justMade.set(String(id), now);
+          emptySince.set(String(id), now);
+          spareError = '';
+          log.info(`made spare channel "${name}"`);
+          await returnBot(botWas, name);
+        } catch (e) {
+          spareFailedAt = now;
+          spareError = errMessage(e);
+          log.warn(`could not make spare channel "${name}": ${spareError}`);
+        }
+      }
+    } finally {
+      spareBusy = false;
+    }
+  }
+
+  function spareStatus(): string {
+    const parent = spare.parent ? resolveChannel(spare.parent) : undefined;
+    const list = Object.entries(spareIds())
+      .map(([id, n]) => ({ ch: channelById(BigInt(id)), n, people: adapter.usersInChannel(BigInt(id)).length }))
+      .filter((x) => x.ch)
+      .sort((a, b) => a.n - b.n);
+    return [
+      `Always one empty channel is ${spare.enabled ? 'on' : 'off'}.`,
+      spare.parent ? `Channels go under "${parent ? parent.name : spare.parent}"${parent ? '' : ' (I cannot find this channel!)'}, named like "${spareName(1)}", at most ${spare.max}.` : `Pick where they go first: ${p}rooms spare under <channel>`,
+      list.length ? `Now: ${list.map((x) => `"${x.ch!.name}" (${x.people ? `${x.people} in it` : 'empty'})`).join(', ')}` : '',
+      spareError ? `The last try failed: ${spareError}. My server group needs permission to create and delete permanent channels there.` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  async function spareCommand(ctx: Parameters<Cog['commands'][number]['run']>[0]): Promise<void> {
+    const sub = ctx.args[1]?.toLowerCase();
+    const after = (word: string): string => ctx.rest.trim().slice('spare'.length).trim().slice(word.length).trim();
+    const saveSpare = (next: SpareSettings): void => {
+      spare = next;
+      bot.state.set('rooms.spare', next);
+    };
+    if (!sub || sub === 'status') return ctx.reply(spareStatus());
+    if (sub === 'under') {
+      const want = after('under');
+      const ch = resolveChannel(want);
+      if (!ch) return ctx.reply(`I cannot find a channel called "${want}".`);
+      if (Object.keys(spareIds()).length) return ctx.reply(`Switch it off first (${p}rooms spare off) so the channels already made are tidied away, then move it.`);
+      saveSpare({ ...spare, parent: `#${ch.id}` });
+      return ctx.reply(`Spare channels go under "${ch.name}".${spare.enabled ? '' : ` ${p}rooms spare on starts it.`}`);
+    }
+    if (sub === 'name') {
+      const t = after('name');
+      if (!/\{n\}/i.test(t) || t.length > MAX_NAME) return ctx.reply(`Give the name with {n} for the number, up to ${MAX_NAME} characters: ${p}rooms spare name Squad {n}`);
+      saveSpare({ ...spare, template: t });
+      return ctx.reply(`New spare channels will be named like "${t.replace(/\{n\}/gi, '1')}" (ones already made keep their names).`);
+    }
+    if (sub === 'max') {
+      const n = Number(ctx.args[2]);
+      if (!Number.isInteger(n) || n < 1 || n > 50) return ctx.reply(`Give a number from 1 to 50: ${p}rooms spare max 10`);
+      saveSpare({ ...spare, max: n });
+      return ctx.reply(`At most ${n} spare channels.`);
+    }
+    if (sub === 'on') {
+      if (!spare.parent || !resolveChannel(spare.parent)) return ctx.reply(`Pick where they go first: ${p}rooms spare under <channel>`);
+      saveSpare({ ...spare, enabled: true });
+      spareFailedAt = 0;
+      await spareTick();
+      return ctx.reply(`Always one empty channel is on. When someone joins the empty one, I make another; extra empty ones are removed after ${SPARE_GRACE_MS / 1000} seconds.\n${spareStatus().split('\n').slice(1).join('\n')}`);
+    }
+    if (sub === 'off') {
+      saveSpare({ ...spare, enabled: false });
+      spareFailedAt = 0;
+      await spareTick();
+      return ctx.reply(`Always one empty channel is off. I removed the empty spare channels; ones with people in them go when they empty.`);
+    }
+    return ctx.reply(`Usage: ${p}rooms spare [on|off|under <channel>|name <template with {n}>|max <n>]`);
+  }
+
   // ---- settings -----------------------------------------------------------------------------------------
 
   const save = (next: RoomSettings): void => {
@@ -258,12 +467,13 @@ export function createRoomsCog(bot: BotApi): Cog {
       },
       {
         name: 'rooms',
-        description: `Temporary rooms: ${p}rooms [on|off|channel <name>|under <channel>|name <template>] (bot admins only)`,
-        usage: `${p}rooms [on|off|channel <channel>|under <channel or "none">|name <template>]`,
+        description: `Temporary rooms: ${p}rooms [on|off|channel <name>|under <channel>|name <template>]; always one empty channel: ${p}rooms spare [on|off|under|name|max] (bot admins only)`,
+        usage: `${p}rooms [on|off|channel <channel>|under <channel or "none">|name <template>|spare ...]`,
         perm: 'admin',
         run: async (ctx) => {
           const sub = ctx.args[0]?.toLowerCase();
           if (!sub || sub === 'status' || sub === 'list') return ctx.reply(statusText());
+          if (sub === 'spare') return spareCommand(ctx);
           if (sub === 'on') {
             const creator = resolveChannel(settings.creatorChannel);
             if (!creator) return ctx.reply(`I cannot find a channel called "${settings.creatorChannel}". Make one, or pick another with ${p}rooms channel <name>.`);
@@ -305,16 +515,22 @@ export function createRoomsCog(bot: BotApi): Cog {
     ],
 
     onLoad() {
-      offDirectory = adapter.events.on('directory', onDirectory);
+      offDirectory = adapter.events.on('directory', () => {
+        onDirectory();
+        void spareTick();
+      });
+      spareTimer = setInterval(() => void spareTick(), SPARE_TICK_MS);
+      spareTimer.unref?.();
       // someone may already be waiting in the join channel
       if (adapter.connected) onDirectory();
     },
 
     onUnload() {
       offDirectory?.();
+      if (spareTimer) clearInterval(spareTimer);
     },
 
-    status: () => `Rooms ${settings.enabled ? `on (${Object.keys(rooms()).length} open)` : 'off'}`,
+    status: () => `Rooms ${settings.enabled ? `on (${Object.keys(rooms()).length} open)` : 'off'} | always one empty ${spare.enabled ? `on (${Object.keys(spareIds()).length})` : 'off'}`,
   };
   return cog;
 }

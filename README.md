@@ -98,7 +98,7 @@ The bot appears in the client list under its nickname. It needs a server group t
 - Only for [temporary rooms](#temporary-rooms): creating temporary channels (`b_channel_create_temporary`, and `b_channel_create_child` to make them as sub-channels), moving people, and assigning channel groups (`i_group_member_add_power` high enough for the owner's channel group).
 - Only for the [nickname filter](#nickname-filter): moving people (move mode) or kicking them (`i_client_kick_from_server_power`, kick mode).
 - Only for [ranks and protected groups](#ranks-and-protected-groups): adding and removing people from server groups (`i_group_member_add_power` and `i_group_member_remove_power` at least as high as those groups' needed powers).
-- Only for [live channel names](#server-tools-support-notifier-live-channel-names-and-seen): changing channel names (`b_channel_modify_name`).
+- Only for [live channel names](#server-tools-support-notifier-live-channel-names-seen-the-live-server-name-and-the-support-channel-opener): changing channel names (`b_channel_modify_name`).
 
 (Names are from the TS3 permission list; the TS6 editor may label them slightly differently.)
 
@@ -131,7 +131,7 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!steam [check\|add\|remove\|interval]` | Plain `!steam` (everyone) lists tracked players and what they're playing. The rest are admin-only. See [Steam status](#steam-status). |
 | `!analytics` (`!stats`) `[hours\|channels\|songs\|on\|off\|interval\|reset]` | Plain `!analytics` (everyone) shows a summary. The rest are admin-only. See [Server analytics](#server-analytics). |
 | `!twitch` (`!live`) `[check\|add\|remove\|interval]` | Plain `!twitch` (everyone) lists tracked channels and who's live. The rest are admin-only. See [Twitch live alerts](#twitch-live-alerts). |
-| `!seen <name>` (`!lastseen`), `!record` | Everyone (`!record reset` is for bot admins). When someone was last online, and the most people ever online at once. See [Server tools](#server-tools-support-notifier-live-channel-names-and-seen). |
+| `!seen <name>` (`!lastseen`), `!record` | Everyone (`!record reset` is for bot admins). When someone was last online, and the most people ever online at once. See [Server tools](#server-tools-support-notifier-live-channel-names-seen-the-live-server-name-and-the-support-channel-opener). |
 | `!oh <name>` (`!oncehuman`), `!icarus <name>` (`!ic`) | Everyone. Look up a weapon, item, recipe, creature and more for Once Human or Icarus. See [Once Human and Icarus lookups](#once-human-and-icarus-lookups). |
 | `!nukes [alpha\|bravo\|charlie]` (`!nuke`), `!minerva [list]` | Everyone. This week's Fallout 76 nuke codes, and where Minerva is and when she comes next. `!minerva add`/`remove` are for bot admins. See [Fallout 76](#fallout-76-nuke-codes-and-minerva). |
 | `!events`, `!event <number>`, `!going [number]`, `!notgoing [number]` | Everyone. Events coming up, and signing up for a poke when one starts. `!event add` and `!event remove` are for bot admins by default. See [Events and announcements](#events-and-announcements). |
@@ -146,7 +146,7 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!jail`, `!unjail`, `!jailed`, `!reports`, `!meeting` | Admins only. Keep someone in a jail channel for a while, read reports, and pull the staff together. See [Jail, reports and meetings](#jail-reports-and-meetings). |
 | `!ipguard`, `!whois <name>` | Admins only. VPN/proxy, clone and country checks on people joining, and what the server says about someone (privately). See [IP guard](#ip-guard-vpn-proxy-clones-and-countries). |
 | `!floodguard`, `!banner` | Admins only. The channel-hopping and chat-spam guard, and the live stats banner. See [Flood guard](#flood-guard) and [Stats banner](#stats-banner). |
-| `!notify`, `!livename` | Admins only. The support notifier and live channel names. See [Server tools](#server-tools-support-notifier-live-channel-names-and-seen). |
+| `!notify`, `!livename` | Admins only. The support notifier and live channel names. See [Server tools](#server-tools-support-notifier-live-channel-names-seen-the-live-server-name-and-the-support-channel-opener). |
 | `!hideme [on\|off]` (`!hide`) | Leave your name off the public widget (you still count in the total). |
 | `!tools`, `!ytcheck`, `!ytupdate` | Admins only. Tool versions, a YouTube playback test, and a yt-dlp update. See [YouTube](#youtube). |
 | `!block <name or #number> [minutes]`, `!unblock`, `!blocklist`, `!blockword`, `!unblockword` | Admins only. See [Keeping trolls out](#keeping-trolls-out). |
@@ -432,6 +432,20 @@ Words are matched ignoring case and common letter swaps, so blocking `noob` also
 
 Change it with `!nickfilter action warn|move|kick`. Renaming clears everything, someone who reconnects gets a fresh warning, and bot admins and `nickfilter.exemptGroups` are never checked.
 
+**Channel names.** The same cog can keep blocked words out of channel names too, using the same word list. It's off until you switch it on:
+
+```
+!channelfilter on                  start watching (channels that already match are left alone, and listed)
+!channelfilter                     settings, and any channel with a blocked word now
+!channelfilter action delete       remove empty bad channels (ones with people or sub-channels are still renamed)
+!channelfilter action rename       rename them (the default)
+!channelfilter name Renamed Channel   what bad channels are renamed to
+!channelfilter check               fix every bad channel now, including ones that were left alone
+!channelfilter off
+```
+
+A channel made or renamed with a blocked word is renamed (or removed) within a few seconds; the people in it get a private message and the online bot admins are told. In channel names, numbers are **not** read as letters (so "Room 455" is safe), but spaces and dots are ignored, so `badword` still catches "B.A.D W O R D". The bot's group needs permission to rename (and, for delete mode, delete) channels.
+
 ### Ranks and protected groups
 
 The `grouptools` cog does two things with server groups. Both are **off until you add the cog and switch them on**: put `"grouptools"` in `cogs` in `config.json` and restart.
@@ -483,6 +497,19 @@ Someone who already has a room and joins again is just taken back to it, and `!r
 !rooms under Private Rooms       make rooms under another channel ("none" = under the join channel)
 !rooms name {name}'s Room        the room name; {name} is the nickname (40 characters at most)
 ```
+
+**Always one empty channel** (`!rooms spare`, admins only). Instead of a room per person, the bot keeps a set of numbered public channels ("Squad 1", "Squad 2"...) under a channel you choose, with **exactly one empty** at any time: when someone joins the empty one, it makes the next; when there are two or more empty, the extras are removed after 30 seconds (the lowest number is the one kept). It works alongside "Create a Room", or on its own.
+
+```
+!rooms spare under Squad Rooms    where the channels go (pick this first)
+!rooms spare name Squad {n}       their names; {n} is the number (default "Room {n}")
+!rooms spare max 10               at most this many (default 10)
+!rooms spare on                   start: the first empty channel appears straight away
+!rooms spare                      status, and each channel with how many are in it
+!rooms spare off                  stop: empty ones are removed now, the rest when they empty
+```
+
+They are permanent channels the bot made itself (it only ever removes its own), so they survive a server restart, and the bot carries on with them after its own restart. The bot's group needs permission to create and delete permanent channels there.
 
 Some servers move whoever creates a channel into it; the bot then goes straight back to where it was, after the owner is in (so the room is never left empty). The bot's server group needs to be allowed to create temporary (and child) channels, move people, and assign the owner's channel group; if something is refused, the person is told why and it goes in the log.
 
@@ -553,9 +580,20 @@ The `gamegroups` cog lets people give themselves server groups an admin has offe
 
 Names match loosely (`!game fallout76`, `!game once` for Once Human). Joining a game's channel toggles the group, sends a private message, and (with `gamegroups.moveBack`, on by default) moves the person straight back to where they were. A person's groups are asked from the server each time, because the TeamSpeak 6 client list can be out of date about group changes. One toggle per person and game every five seconds, so a double click doesn't undo itself. Only offer harmless groups: anyone can join any game group on the list.
 
+**Auto-move on connect** (`!automove`, admins only). Someone in a chosen server group who connects is moved to a channel, for example Fallout 76 players into "Fallout 76":
+
+```
+!automove add 14 | Fallout 76      server group 14 goes to "Fallout 76" (a name or #<id>)
+!automove on / !automove off
+!automove                          the rules, in order (the first that fits someone wins)
+!automove remove 1
+```
+
+Only connecting counts: people already online when the bot starts, and people moving around later, are left alone. They get a short "Welcome! I moved you to ..." message. The bot's group needs permission to move people. It's part of `grouptools`, so that cog has to be in `cogs`.
+
 ### Staff online
 
-`!staff` (or `!admins`, everyone) lists the staff online right now and which channel they're in. Staff are bot admins plus the server groups an admin adds with `!staff add <group ID>` (`!staff remove`, `!staff groups`; or `servertools.staffGroups` in `config.json`). It's part of the `servertools` cog, and so are two new [live channel name](#server-tools-support-notifier-live-channel-names-and-seen) placeholders: `{staff}` (how many are online) and `{staffnames}` (their names, shortened with "..." to fit the 40 characters), for example `!livename add Staff | [cspacer]Staff on: {staffnames}`.
+`!staff` (or `!admins`, everyone) lists the staff online right now and which channel they're in. Staff are bot admins plus the server groups an admin adds with `!staff add <group ID>` (`!staff remove`, `!staff groups`; or `servertools.staffGroups` in `config.json`). It's part of the `servertools` cog, and so are two new [live channel name](#server-tools-support-notifier-live-channel-names-seen-the-live-server-name-and-the-support-channel-opener) placeholders: `{staff}` (how many are online) and `{staffnames}` (their names, shortened with "..." to fit the 40 characters), for example `!livename add Staff | [cspacer]Staff on: {staffnames}`.
 
 Live names can also show the clock: `{time}` ("9:41 PM") and `{date}` ("Sat, Oct 3"), in the bot computer's time zone, for example `!livename add Clock | [cspacer]{date} | {time}`. They're updated every `servertools.liveNames.updateSeconds` (60 by default), so the clock is at most about a minute behind.
 
@@ -582,7 +620,7 @@ The web dashboard can serve a live banner image at `/banner.png`, 800 x 160: you
 
 It's drawn by the bot itself, with no image libraries and no uploads to TeamSpeak (so the TS6 upload bug doesn't matter), and redrawn at most every 30 seconds however many people look. Times use the bot computer's time zone. Like the widget, it's public, read-only, and limited to 60 requests a minute per visitor.
 
-### Server tools: support notifier, live channel names and !seen
+### Server tools: support notifier, live channel names, !seen, the live server name and the support channel opener
 
 The `servertools` cog adds a few things TeamSpeak 3 servers used to get from separate bots. It's **off until you add it**: put `"servertools"` in `cogs` in `config.json` and restart. `!seen` and `!record` then work straight away; the notifier and live names stay off until an admin switches them on. Settings made with the commands are remembered in `state.json`; the `servertools` section of `config.json` only sets the starting values.
 
@@ -616,6 +654,31 @@ Connecting straight into the channel counts as joining it. Members of the notifi
 **`!seen <name>`** (everyone) says whether someone is online now and in which channel, or when they were last seen. Part of a name works (`!seen ann` finds "Annie"), and people are remembered by their unique ID, so a new nickname doesn't make them a stranger. It only knows people who have been online since the cog was first loaded. The data lives in `data/seen.json` (just the name and first and last time seen), and people not seen for `servertools.seen.keepDays` (default 365) are forgotten. Set `servertools.seen.enabled` to `false` to switch it off.
 
 **`!record`** (everyone) shows the most people ever online at once, and when.
+
+**Live server name** (`!servername`, admins only). Like a live channel name, but for the server's own name, which people see in their bookmarks and at the top of the channel list:
+
+```
+!servername set TGSC Gaming | {online} online (record {record})
+!servername on                 start (it renames the server straight away and says what it set)
+!servername now                update it right away
+!servername                    the template and what it reads now
+!servername off                stop (the server keeps its last name; rename it in TeamSpeak if you like)
+```
+
+It uses the same placeholders as live channel names, fits TeamSpeak's 64 characters, and is renamed at most every `servertools.liveNames.updateSeconds` and only when it would change. The bot's group needs `b_virtualserver_modify_name`; if it's missing, `!servername on` says so.
+
+**Support channel opener** (`!support`, admins only). The support channel is open while staff are online, and closed (no room for anyone) a couple of minutes after the last one leaves or sets themselves away, so people don't sit waiting in an empty support room. Staff are the same as for `!staff`: bot admins and the staff server groups.
+
+```
+!support channel Support                 which channel
+!support names Support | Support (closed)    optional: switch its name too
+!support delay 2                         minutes to wait after the last staff member goes (0 to 120, default 2)
+!support on                              start (it opens or closes the channel straight away)
+!support                                 whether it's open, and which staff count right now
+!support off                             stop, and open the channel to everyone again
+```
+
+Closing sets the channel's maximum clients to 0, so people can't join; anyone already inside stays, and people whose group can ignore the limit (server admins, usually) can still get in. It pairs well with the support notifier above. The bot's group needs permission to edit that channel (its maximum clients, and its name if you set names).
 
 ### Playlists
 

@@ -3,6 +3,7 @@ import {
   clientMove,
   dialFileTransfer,
   getClientInfo,
+  listClients,
   poke as pokeClient,
   sendTextMessage,
   type DirectorySnapshot,
@@ -14,6 +15,7 @@ import { buildCommand } from '@echosixhiya/teamspeak-client/command';
 import type { Log } from '../logger.js';
 import { TypedEmitter } from '../util/emitter.js';
 import { chunkText, errMessage, sleep } from '../util/text.js';
+import { applyFixes, computeFixes, emptyFixes, fixCount, type DirectoryFixes } from './directoryfix.js';
 import { applyAvatar, clearAvatar as clearAvatarFlag, type AvatarIo } from './avatar.js';
 import { hostFromAddress, sendOverTransfer } from './filetransfer.js';
 import { parseGroupIds } from './groups.js';
@@ -34,6 +36,8 @@ export interface TeamspeakAdapterOptions {
 
 const CONNECT_TIMEOUT_MS = 30_000;
 const CLIENT_TYPE_NORMAL = 0;
+/** How often the client list is checked against the server's own answer (see directoryfix.ts). */
+const RESYNC_MS = 20_000;
 
 /** TsAdapter backed by @echosixhiya/teamspeak-client (clean-room TS3/TS5/TS6 protocol). */
 export class TeamspeakAdapter implements TsAdapter {
@@ -42,6 +46,16 @@ export class TeamspeakAdapter implements TsAdapter {
   readonly #log: Log;
   #client?: Client;
   #snapshot: DirectorySnapshot = { channels: [], clients: [] };
+  /** Corrections from asking the server who is where (the library can miss a move). */
+  #fixes: DirectoryFixes = emptyFixes();
+  /** Bumped on every snapshot from the library, so a resync answer older than a notification is not used. */
+  #snapGen = 0;
+  /** Channels the bot has subscribed to (new channels need subscribing, or moves in and out of them are not heard). */
+  #subscribed = new Set<bigint>();
+  #subscribeTimer?: NodeJS.Timeout;
+  #resyncBusy = false;
+  #resyncFailures = 0;
+  #lastFixCount = 0;
   #running = false;
   #connected = false;
   #stopController = new AbortController();
@@ -109,6 +123,10 @@ export class TeamspeakAdapter implements TsAdapter {
     });
     this.#client = client;
     this.#snapshot = { channels: [], clients: [] };
+    this.#fixes = emptyFixes();
+    this.#subscribed = new Set();
+    this.#resyncFailures = 0;
+    this.#lastFixCount = 0;
 
     let ended!: (reason: string) => void;
     const endedP = new Promise<string>((r) => (ended = r));
@@ -117,6 +135,8 @@ export class TeamspeakAdapter implements TsAdapter {
     client.on('kicked', (msg) => ended(`kicked: ${msg || 'no reason given'}`));
     client.on('directorySnapshot', (s) => {
       this.#snapshot = s;
+      this.#snapGen++;
+      if (this.#connected && this.#subscribed.size && s.channels.some((c) => !this.#subscribed.has(c.id))) this.#subscribeSoon();
       this.events.emit('directory');
     });
     client.on('textMessage', (m) => {
@@ -163,8 +183,16 @@ export class TeamspeakAdapter implements TsAdapter {
       this.#log.warn(`channelsubscribeall failed (${errMessage(e)}); falling back to per-user lookups`);
     });
 
+    this.#subscribed = new Set(this.#snapshot.channels.map((c) => c.id));
+    const resyncTimer = setInterval(() => void this.#resync(), RESYNC_MS);
+    resyncTimer.unref?.();
+
     this.events.emit('connected');
-    const reason = await endedP;
+    const reason = await endedP.finally(() => {
+      clearInterval(resyncTimer);
+      if (this.#subscribeTimer) clearTimeout(this.#subscribeTimer);
+      this.#subscribeTimer = undefined;
+    });
 
     this.#connected = false;
     this.#client = undefined;
@@ -172,6 +200,52 @@ export class TeamspeakAdapter implements TsAdapter {
     this.#log.warn(`disconnected: ${reason}`);
     this.events.emit('disconnected', reason);
     await client.disconnect().catch(() => {});
+  }
+
+  /** A channel appeared (someone made one, or the bot did): subscribe to it too, then check the client list. */
+  #subscribeSoon(): void {
+    if (this.#subscribeTimer) return;
+    this.#subscribeTimer = setTimeout(() => {
+      this.#subscribeTimer = undefined;
+      const c = this.#client;
+      if (!c || !this.#connected) return;
+      const ids = this.#snapshot.channels.map((ch) => ch.id);
+      c.execCommand('channelsubscribeall', 5_000)
+        .then(() => {
+          this.#subscribed = new Set(ids);
+          this.#log.debug(`subscribed to new channels (${ids.length} in all)`);
+        })
+        .catch((e) => this.#log.warn(`could not subscribe to a new channel: ${errMessage(e)}`))
+        .finally(() => setTimeout(() => void this.#resync(), 1_500).unref?.());
+    }, 500);
+    this.#subscribeTimer.unref?.();
+  }
+
+  /** Ask the server who is where, and correct the client list if the library has fallen behind. */
+  async #resync(): Promise<void> {
+    const c = this.#client;
+    if (!c || !this.#connected || this.#resyncBusy || this.#resyncFailures >= 3) return;
+    this.#resyncBusy = true;
+    const gen = this.#snapGen;
+    try {
+      const rows = await listClients(c);
+      this.#resyncFailures = 0;
+      if (gen !== this.#snapGen) return; // something changed while asking: the answer may be older, try next time
+      const before = JSON.stringify(this.users(), (_k, v) => (typeof v === 'bigint' ? String(v) : v));
+      this.#fixes = computeFixes(this.#snapshot.clients, rows);
+      const n = fixCount(this.#fixes);
+      if (n && n !== this.#lastFixCount) {
+        const f = this.#fixes;
+        this.#log.info(`the client list was out of date; corrected it from the server (${f.moved.size} moved, ${f.ghosts.size} gone, ${f.missing.size} not listed)`);
+      }
+      this.#lastFixCount = n;
+      if (JSON.stringify(this.users(), (_k, v) => (typeof v === 'bigint' ? String(v) : v)) !== before) this.events.emit('directory');
+    } catch (e) {
+      this.#resyncFailures++;
+      if (this.#resyncFailures === 1 || this.#resyncFailures === 3) this.#log.warn(`could not check the client list with the server: ${errMessage(e)}${this.#resyncFailures === 3 ? ' (giving up until the next reconnect)' : ''}`);
+    } finally {
+      this.#resyncBusy = false;
+    }
   }
 
   #libLogger(): LibLogger {
@@ -208,7 +282,7 @@ export class TeamspeakAdapter implements TsAdapter {
 
   users(): TsUser[] {
     const self = this.selfId;
-    return this.#snapshot.clients
+    return applyFixes(this.#snapshot.clients, this.#fixes)
       .filter((c) => c.type === CLIENT_TYPE_NORMAL && c.id !== self && !this.#ignored(c.nickname, c.uid))
       .map((c) => ({
         id: c.id,
@@ -265,6 +339,16 @@ export class TeamspeakAdapter implements TsAdapter {
 
   async renameChannel(channelId: bigint, name: string): Promise<void> {
     await this.#need().execCommand(buildCommand('channeledit', { cid: String(channelId), channel_name: name }), 10_000);
+  }
+
+  async setChannelMaxClients(channelId: bigint, max: number | null): Promise<void> {
+    const props: Record<string, string> =
+      max === null ? { cid: String(channelId), channel_flag_maxclients_unlimited: '1' } : { cid: String(channelId), channel_maxclients: String(Math.max(0, Math.round(max))), channel_flag_maxclients_unlimited: '0' };
+    await this.#need().execCommand(buildCommand('channeledit', props), 10_000);
+  }
+
+  async renameServer(name: string): Promise<void> {
+    await this.#need().execCommand(buildCommand('serveredit', { virtualserver_name: name }), 10_000);
   }
 
   async createTempChannel(opts: { name: string; parentId: bigint; deleteDelaySec: number }): Promise<bigint> {

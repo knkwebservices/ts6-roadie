@@ -1,11 +1,12 @@
 import type { TsUser } from '../../adapter/types.js';
 import type { BotApi, Cog, CogFactory, CogManifest } from '../../core/types.js';
 import { errMessage } from '../../util/text.js';
+import { uniqueName } from '../rooms/index.js';
 
 export const manifest: CogManifest = {
   name: 'nickfilter',
   version: '1.0.0',
-  description: 'Warns about blocked words in nicknames, then moves or kicks if they are not changed',
+  description: 'Warns about blocked words in nicknames, then moves or kicks if they are not changed; renames or removes channels with blocked words',
 };
 
 /** How often to look again (for warnings whose time is up). */
@@ -43,6 +44,35 @@ export function blockedWordIn(name: string, words: string[]): string | undefined
   return undefined;
 }
 
+/**
+ * The first blocked word in a channel name, or undefined. Channel names are checked as written and with
+ * spaces and symbols taken out, but numbers are NOT read as letters (so "Room 455" is not "room ass").
+ */
+export function channelBlockedWord(name: string, words: string[]): string | undefined {
+  const lower = name.toLowerCase().replace(/\[[a-z]*spacer[^\]]*\]/g, ' ');
+  const letters = [...lower].filter((ch) => /\p{L}/u.test(ch)).join('');
+  for (const w of words) {
+    const want = w.trim().toLowerCase();
+    if (!want) continue;
+    const wantLetters = [...want].filter((ch) => /\p{L}/u.test(ch)).join('');
+    if (lower.includes(want) || (wantLetters.length >= 2 && letters.includes(wantLetters))) return w;
+  }
+  return undefined;
+}
+
+type ChannelAction = 'rename' | 'delete';
+
+interface ChannelSettings {
+  enabled: boolean;
+  /** "rename" always renames; "delete" removes the channel if it is empty (and renames it if not). */
+  action: ChannelAction;
+  /** What a bad channel is renamed to. */
+  renameTo: string;
+}
+
+/** After failing to fix a channel, leave it alone this long. */
+const CHANNEL_RETRY_MS = 5 * 60_000;
+
 export function createNickfilterCog(bot: BotApi): Cog {
   const cfg = bot.config.nickfilter;
   const p = bot.config.prefix;
@@ -52,6 +82,11 @@ export function createNickfilterCog(bot: BotApi): Cog {
   let s = bot.state.get<Settings>('nickfilter.settings', { enabled: cfg.enabled, words: cfg.words, action: cfg.action, moveChannel: cfg.moveChannel });
   /** Warned people, by client number (a reconnect gets a fresh warning and a fresh wait). */
   const warned = new Map<number, { name: string; at: number; done?: boolean }>();
+  let ch = bot.state.get<ChannelSettings>('nickfilter.channels', { enabled: false, action: 'rename', renameTo: 'Renamed Channel' });
+  const chFailed = new Map<string, number>();
+  /** Channels ("<id>|<name>") that already had a blocked word when the filter was switched on: left alone unless !channelfilter check. */
+  let chAllowed = new Set(bot.state.get<string[]>('nickfilter.channelsAllowed', []));
+  let chChecking = false;
   let timer: NodeJS.Timeout | undefined;
   let offDirectory: (() => void) | undefined;
   let checking = false;
@@ -132,6 +167,58 @@ export function createNickfilterCog(bot: BotApi): Cog {
     }
   }
 
+  const saveCh = (next: ChannelSettings): void => {
+    ch = next;
+    bot.state.set('nickfilter.channels', next);
+  };
+
+  /** Channels whose names have a blocked word right now. */
+  const badChannels = (): { id: bigint; name: string; parentId: bigint; word: string }[] =>
+    adapter
+      .channels()
+      .map((c) => ({ ...c, word: channelBlockedWord(c.name, s.words) ?? '' }))
+      .filter((c) => c.word);
+
+  /** Rename or remove channels with blocked words. Returns what was done, one line each. */
+  async function checkChannels(force = false): Promise<string[]> {
+    const done: string[] = [];
+    if (chChecking || (!ch.enabled && !force) || !s.words.length || !adapter.connected) return done;
+    chChecking = true;
+    try {
+      const now = Date.now();
+      for (const bad of badChannels()) {
+        const key = `${bad.id}|${bad.name}`;
+        if (!force && chAllowed.has(key)) continue;
+        const failedAt = chFailed.get(key);
+        if (!force && failedAt !== undefined && now - failedAt < CHANNEL_RETRY_MS) continue;
+        const inside = adapter.usersInChannel(bad.id);
+        const hasChildren = adapter.channels().some((c) => c.parentId === bad.id);
+        try {
+          if (ch.action === 'delete' && !inside.length && !hasChildren && bad.id !== adapter.selfChannelId()) {
+            await adapter.deleteChannel(bad.id);
+            done.push(`removed "${bad.name}" (blocked word "${bad.word}")`);
+          } else {
+            const siblings = adapter.channels().filter((c) => c.parentId === bad.parentId && c.id !== bad.id).map((c) => c.name);
+            const to = uniqueName(ch.renameTo, siblings);
+            await adapter.renameChannel(bad.id, to);
+            done.push(`renamed "${bad.name}" to "${to}" (blocked word "${bad.word}")`);
+            for (const u of inside) adapter.sendPrivate(u.id, `I renamed your channel to "${to}" because its name had a word that isn't allowed here.`).catch(() => {});
+          }
+          chFailed.delete(key);
+        } catch (e) {
+          chFailed.set(key, now);
+          log.warn(`could not fix channel "${bad.name}": ${errMessage(e)}`);
+        }
+      }
+      for (const line of done) log.info(`channel filter: ${line}`);
+      if (done.length) tellAdmins(`Channel name filter: ${done.join('; ')}.`);
+      if (chFailed.size > 200) chFailed.clear();
+    } finally {
+      chChecking = false;
+    }
+    return done;
+  }
+
   const cog: Cog = {
     commands: [
       {
@@ -196,11 +283,76 @@ export function createNickfilterCog(bot: BotApi): Cog {
           return ctx.reply(`Usage: ${p}nickfilter [on|off|add <word>|remove <word>|action warn|move|kick|channel <name>]`);
         },
       },
+      {
+        name: 'channelfilter',
+        aliases: ['chanfilter'],
+        description: `Blocked words in channel names (the same word list as ${p}nickfilter): ${p}channelfilter [on|off|action rename|delete|name <text>|check] (bot admins only)`,
+        usage: `${p}channelfilter [on|off|action rename|delete|name <text>|check]`,
+        perm: 'admin',
+        run: async (ctx) => {
+          const sub = ctx.args[0]?.toLowerCase();
+          if (!sub || sub === 'status' || sub === 'list') {
+            const bad = badChannels();
+            return ctx.reply(
+              [
+                `The channel name filter is ${ch.enabled ? 'on' : 'off'}. Channels with a blocked word are ${ch.action === 'delete' ? 'removed if empty (renamed if not)' : 'renamed'} to "${ch.renameTo}", and the online bot admins are told.`,
+                s.words.length ? `It uses the ${s.words.length} blocked word${s.words.length === 1 ? '' : 's'} from ${p}nickfilter (add more with ${p}nickfilter add <word>). Numbers are not read as letters in channel names.` : `No blocked words yet: ${p}nickfilter add <word>`,
+                bad.length ? `Channels with a blocked word now: ${bad.map((b) => `"${b.name}" (${b.word})`).join(', ')}` : 'No channel has a blocked word now.',
+              ].join('\n'),
+            );
+          }
+          if (sub === 'on') {
+            if (!s.words.length) return ctx.reply(`Add a blocked word first: ${p}nickfilter add <word>`);
+            saveCh({ ...ch, enabled: true });
+            // channels that are already there are someone's choice: leave them, but say which they are
+            const existing = badChannels();
+            chAllowed = new Set(existing.map((b) => `${b.id}|${b.name}`));
+            bot.state.set('nickfilter.channelsAllowed', [...chAllowed]);
+            return ctx.reply(
+              `The channel name filter is on. New channels, and channels renamed from now on, are checked.` +
+                (existing.length ? `\nI left these existing channels alone: ${existing.map((b) => `"${b.name}" (${b.word})`).join(', ')}. ${p}channelfilter check fixes them too.` : ''),
+            );
+          }
+          if (sub === 'off') {
+            saveCh({ ...ch, enabled: false });
+            return ctx.reply('The channel name filter is off.');
+          }
+          if (sub === 'action') {
+            const a = ctx.args[1]?.toLowerCase();
+            if (a !== 'rename' && a !== 'delete') return ctx.reply(`Usage: ${p}channelfilter action rename|delete`);
+            saveCh({ ...ch, action: a });
+            return ctx.reply(a === 'rename' ? `Channels with a blocked word are renamed to "${ch.renameTo}".` : `Empty channels with a blocked word are removed; ones with people in them (or sub-channels) are renamed to "${ch.renameTo}".`);
+          }
+          if (sub === 'name') {
+            const t = ctx.rest.slice('name'.length).trim();
+            if (!t || t.length > 36 || channelBlockedWord(t, s.words)) return ctx.reply(`Give a clean name of up to 36 characters: ${p}channelfilter name Renamed Channel`);
+            saveCh({ ...ch, renameTo: t });
+            return ctx.reply(`Bad channels are renamed to "${t}".`);
+          }
+          if (sub === 'check') {
+            if (!ch.enabled) {
+              const bad = badChannels();
+              return ctx.reply(`The filter is off, so I changed nothing.${bad.length ? ` These have a blocked word: ${bad.map((b) => `"${b.name}" (${b.word})`).join(', ')}.` : ' No channel has a blocked word.'}`);
+            }
+            const done = await checkChannels(true);
+            chAllowed = new Set();
+            bot.state.set('nickfilter.channelsAllowed', []);
+            return ctx.reply(done.length ? `Done: ${done.join('; ')}.` : 'No channel has a blocked word.');
+          }
+          return ctx.reply(`Usage: ${p}channelfilter [on|off|action rename|delete|name <text>|check]`);
+        },
+      },
     ],
 
     onLoad() {
-      offDirectory = adapter.events.on('directory', () => void check());
-      timer = setInterval(() => void check(), TICK_MS);
+      offDirectory = adapter.events.on('directory', () => {
+        void check();
+        void checkChannels();
+      });
+      timer = setInterval(() => {
+        void check();
+        void checkChannels();
+      }, TICK_MS);
       timer.unref?.();
     },
 
@@ -209,7 +361,7 @@ export function createNickfilterCog(bot: BotApi): Cog {
       if (timer) clearInterval(timer);
     },
 
-    status: () => `Nickname filter ${s.enabled ? `on (${s.action}, ${s.words.length} words)` : 'off'}`,
+    status: () => `Nickname filter ${s.enabled ? `on (${s.action}, ${s.words.length} words)` : 'off'} | channel name filter ${ch.enabled ? `on (${ch.action})` : 'off'}`,
   };
   return cog;
 }

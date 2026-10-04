@@ -204,8 +204,10 @@ async function switchTo(target, previous) {
   pointCurrentAt(target);
   log(`current -> ${basename(target)}`);
   if (!opt['no-service']) log(`starting service "${opt.service}"`);
-  const started = service('start');
-  const healthy = started && (await waitHealthy(since));
+  // NSSM sometimes answers "SERVICE_START_PENDING" when the bot is starting fine (it just takes a moment),
+  // so a start that "failed" still gets the full health wait: the health file is what decides.
+  if (!service('start') && !opt['no-service']) log('the service manager reported a problem starting; waiting for the bot to report in anyway');
+  const healthy = await waitHealthy(since);
   if (healthy) return { ok: true, health: healthy };
 
   if (!previous || previous === target) return { ok: false, rolledBack: false };
