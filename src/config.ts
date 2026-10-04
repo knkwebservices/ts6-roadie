@@ -242,6 +242,23 @@ export interface Config {
     /** After toggling a group from a channel, move the person back to where they were. */
     moveBack: boolean;
   };
+  privchannels: {
+    /** Join the claim channel, get a permanent channel of your own. Off by default. */
+    enabled: boolean;
+    claimChannel: string;
+    /** Where new private channels go (by name, or "#<id>"); empty means under the claim channel. */
+    parentChannel: string;
+    nameTemplate: string;
+    /** Channel group given to the owner in their channel (5 is Channel Admin on a default server; 0 for none). */
+    ownerChannelGroup: number;
+    maxChannels: number;
+    cleaner: {
+      /** Remove watched channels (private channels, and sub-channels of `zones`) unused for `days`. Off by default. */
+      enabled: boolean;
+      days: number;
+      zones: number[];
+    };
+  };
   modtools: {
     /** The channel !jail puts people in (lock it in TeamSpeak so people can't wander in). */
     jailChannel: string;
@@ -410,6 +427,7 @@ export const DEFAULT_CONFIG: Config = {
   events: { enabled: true, whoCanAdd: 'admins', remindMinutes: 60, pokeGoing: true, maxEvents: 50, postTo: 'channel' },
   announcements: { enabled: false, everyMinutes: 60, messages: [], postTo: 'channel' },
   gamegroups: { enabled: true, games: [], moveBack: true },
+  privchannels: { enabled: false, claimChannel: 'Get a Channel', parentChannel: '', nameTemplate: "{name}'s Channel", ownerChannelGroup: 5, maxChannels: 100, cleaner: { enabled: false, days: 14, zones: [] } },
   modtools: { jailChannel: 'Jail', defaultMinutes: 30, maxMinutes: 10_080, reportCooldownSeconds: 60, keepReports: 100 },
   ipguard: { enabled: false, action: 'warn', moveChannel: 'AFK Room', apiKey: '', vpn: true, clones: false, maxPerIp: 2, countryMode: 'off', countries: [], exemptGroups: [], exemptUids: [] },
   floodguard: { enabled: false, hops: 6, hopSeconds: 30, messages: 6, messageSeconds: 10, action: 'warn', moveChannel: 'AFK Room', quietSeconds: 60, exemptGroups: [] },
@@ -679,6 +697,16 @@ export function validateConfig(c: Config): Config {
       'gamegroups.games must be a list (up to 50) of { "name": "Fallout 76", "group": <server-group ID>, "channel": "<optional channel name>" }',
     );
     need(isObject(gg) && typeof gg.moveBack === 'boolean', 'gamegroups.moveBack must be true or false');
+    const pc = c.privchannels;
+    need(isObject(pc) && typeof pc.enabled === 'boolean', 'privchannels.enabled must be true or false');
+    need(isObject(pc) && typeof pc.claimChannel === 'string' && pc.claimChannel.trim() !== '' && pc.claimChannel.length <= 100, 'privchannels.claimChannel must be a channel name');
+    need(isObject(pc) && typeof pc.parentChannel === 'string' && pc.parentChannel.length <= 100, 'privchannels.parentChannel must be a channel name, "#<id>", or empty');
+    need(isObject(pc) && typeof pc.nameTemplate === 'string' && /\{name\}/i.test(pc.nameTemplate) && pc.nameTemplate.length <= 40, 'privchannels.nameTemplate must contain {name} and be at most 40 characters');
+    need(isObject(pc) && Number.isInteger(pc.ownerChannelGroup) && pc.ownerChannelGroup >= 0, 'privchannels.ownerChannelGroup must be a channel group ID (0 for none)');
+    need(isObject(pc) && Number.isInteger(pc.maxChannels) && pc.maxChannels >= 1 && pc.maxChannels <= 1000, 'privchannels.maxChannels must be a whole number from 1 to 1000');
+    const cc = isObject(pc) ? pc.cleaner : undefined;
+    need(isObject(cc) && typeof cc.enabled === 'boolean' && Number.isInteger(cc.days) && (cc.days as number) >= 1 && (cc.days as number) <= 365, 'privchannels.cleaner must look like { "enabled": false, "days": 14, "zones": [] } (days 1 to 365)');
+    need(isObject(cc) && Array.isArray(cc.zones) && cc.zones.every((z) => Number.isInteger(z) && z > 0), 'privchannels.cleaner.zones must be a list of channel ID numbers');
     const mt = c.modtools;
     need(isObject(mt) && typeof mt.jailChannel === 'string' && mt.jailChannel.trim() !== '' && mt.jailChannel.length <= 100, 'modtools.jailChannel must be a channel name');
     need(isObject(mt) && Number.isInteger(mt.defaultMinutes) && mt.defaultMinutes >= 1 && mt.defaultMinutes <= 525_600, 'modtools.defaultMinutes must be a whole number from 1 to 525600');

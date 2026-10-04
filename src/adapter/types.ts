@@ -82,6 +82,10 @@ export interface TsAdapter {
    * `deleteDelaySec`. Resolves with the new channel's ID. (The server may move the bot into it.)
    */
   createTempChannel(opts: { name: string; parentId: bigint; deleteDelaySec: number }): Promise<bigint>;
+  /** Create a permanent channel (it stays when empty). Resolves with the new channel's ID. (The server may move the bot into it.) */
+  createPermanentChannel(opts: { name: string; parentId: bigint }): Promise<bigint>;
+  /** Delete a channel. Without `force` the server refuses if anyone is in it. */
+  deleteChannel(channelId: bigint, force?: boolean): Promise<void>;
   /** Put someone in a channel group for one channel (for example channel admin of their own room). */
   setChannelGroup(userId: number, channelId: bigint, channelGroupId: number): Promise<void>;
   /** Add an online person to a server group (needs enough group member add power). */

@@ -95,7 +95,7 @@ export function createCommunityCog(bot: BotApi): Cog {
   // ---- the AFK mover ----------------------------------------------------------------------
 
   const exempt = (u: TsUser): boolean =>
-    bot.isAdmin(u.uid) || u.groups.some((g) => cfg.afk.exemptGroups.includes(g)) || cfg.afk.ignoreChannels.some((n) => lower(n) === lower(channelName(u.channelId)));
+    bot.isAdmin(u.uid) || u.groups.some((g) => cfg.afk.exemptGroups.includes(g)) || [...cfg.afk.ignoreChannels, bot.config.modtools.jailChannel].some((n) => lower(n) === lower(channelName(u.channelId)));
 
   /** Bring back someone we moved, as soon as they are doing something again. */
   async function considerReturn(u: TsUser, rec: Moved, afkChannelId: bigint, moved: Record<string, Moved>): Promise<void> {

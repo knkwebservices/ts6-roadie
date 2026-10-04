@@ -110,6 +110,22 @@ export class FakeAdapter implements TsAdapter {
     if (this.moveCreatorIntoNewChannel) this.chan = id;
     return id;
   }
+  deleted: bigint[] = [];
+  failDelete: Error | undefined;
+  async createPermanentChannel(opts: { name: string; parentId: bigint }) {
+    if (this.failCreate) throw this.failCreate;
+    const id = this.nextChannelId++;
+    this.created.push({ id, name: opts.name, parentId: opts.parentId, deleteDelaySec: -1 });
+    this.chans.push({ id, name: opts.name, parentId: opts.parentId });
+    if (this.moveCreatorIntoNewChannel) this.chan = id;
+    return id;
+  }
+  async deleteChannel(id: bigint, force = false) {
+    if (this.failDelete) throw this.failDelete;
+    if (!force && this.userList.some((u) => u.channelId === id)) throw new Error('channel not empty (id=772)');
+    this.chans = this.chans.filter((c) => c.id !== id);
+    this.deleted.push(id);
+  }
   async setChannelGroup(userId: number, channelId: bigint, groupId: number) {
     if (this.failChannelGroup) throw this.failChannelGroup;
     this.channelGroups.push({ userId, channelId, groupId });

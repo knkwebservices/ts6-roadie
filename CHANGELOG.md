@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.25.0
+- **New `privchannels` cog** (opt-in, both parts off until switched on):
+  - **Private channels:** join "Get a Channel" (`privchannels.claimChannel`, or `!privchannels claim <channel>`) to get a permanent channel of your own, with channel admin (`ownerChannelGroup`, 5). One per person; joining again or `!mychannel` (everyone) takes you back; `!mychannel giveup` removes it. Admins: `!privchannels on|off|claim|under|name|list|remove`. At most `maxChannels` (100).
+  - **Channel cleaner:** removes watched channels (private channels, and sub-channels of channels added with `!cleaner add`) left empty for `!cleaner days` (14). Hourly when on; `!cleaner preview` and `!cleaner run`. Never removes a channel with someone in it or with sub-channels, or the bot's, home, claim, AFK, jail or zone channels. A channel first seen counts as used then, so nothing is removed before a full period has passed.
+- **The AFK mover now leaves people in the jail channel alone** (`modtools.jailChannel`), with no config needed.
+- The adapter can now create permanent channels and delete channels (`createPermanentChannel`, `deleteChannel`).
+
 ## 0.24.0
 - **New `modtools` cog** (opt-in: add `"modtools"` to `cogs`):
   - **Jail** (admins): `!jail <name> [30|2h|1d|forever] [reason]` moves someone to the jail channel (`modtools.jailChannel`, default "Jail") and moves them back if they leave, with a poke saying how long is left. Survives reconnects and bot restarts (kept in `data/state.json`); they're told when their time is up. `!unjail <name>`, `!jailed`. Bot admins can't be jailed; `modtools.defaultMinutes` (30) and `modtools.maxMinutes` (a week). Names with spaces work.

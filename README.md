@@ -140,6 +140,8 @@ Commands work as a **private message to the bot** (works from any channel, and i
 | `!rank [name]` (`!hours`), `!ranks`, `!protect` | `!rank` (everyone) shows time online and rank. `!ranks` and `!protect` are admin-only. See [Ranks and protected groups](#ranks-and-protected-groups). |
 | `!staff` (`!admins`) | Everyone. Which staff are online right now, and where. `!staff add`/`remove <group ID>` (bot admins) chooses which server groups count. See [Staff online](#staff-online). |
 | `!game <name>` (`!role`), `!games` | Everyone. Give yourself a game's server group (like "Fallout 76 Player"), or take it away. Admins set them up. See [Game groups](#game-groups). |
+| `!mychannel [giveup]` (`!mych`) | Everyone. Go to your own private channel, or give it up. See [Private channels and the cleaner](#private-channels-and-the-channel-cleaner). |
+| `!privchannels`, `!cleaner` | Admins only. Set up private channels, and remove channels nobody uses. See [Private channels and the cleaner](#private-channels-and-the-channel-cleaner). |
 | `!report <name> <what happened>` | Everyone. Privately tells the staff online about a problem, and saves it for the rest. See [Jail, reports and meetings](#jail-reports-and-meetings). |
 | `!jail`, `!unjail`, `!jailed`, `!reports`, `!meeting` | Admins only. Keep someone in a jail channel for a while, read reports, and pull the staff together. See [Jail, reports and meetings](#jail-reports-and-meetings). |
 | `!ipguard`, `!whois <name>` | Admins only. VPN/proxy, clone and country checks on people joining, and what the server says about someone (privately). See [IP guard](#ip-guard-vpn-proxy-clones-and-countries). |
@@ -484,6 +486,24 @@ Someone who already has a room and joins again is just taken back to it, and `!r
 
 Some servers move whoever creates a channel into it; the bot then goes straight back to where it was, after the owner is in (so the room is never left empty). The bot's server group needs to be allowed to create temporary (and child) channels, move people, and assign the owner's channel group; if something is refused, the person is told why and it goes in the log.
 
+### Private channels and the channel cleaner
+
+The `privchannels` cog gives members a permanent channel of their own, and cleans up channels nobody uses. Add `"privchannels"` to `cogs` and restart. Both parts start switched off.
+
+**Private channels.** Make a channel called "Get a Channel" (or choose one with `!privchannels claim <channel>`), then `!privchannels on`. Anyone who joins it gets a **permanent** channel ("Ann's Channel") made under it (or under `!privchannels under <channel>`), is moved in, and is made its channel admin (`privchannels.ownerChannelGroup`, 5 by default), so they can rename it, set a password or decide who can talk. Unlike [temporary rooms](#temporary-rooms), it stays when they leave. One per person: joining again takes them back to theirs, and so does `!mychannel` from anywhere. `!mychannel giveup` removes it. Admins: `!privchannels list` (with when each was last used), `!privchannels remove <owner or channel>`, `!privchannels name {name}'s Base`. At most `privchannels.maxChannels` (100).
+
+**The cleaner.** It watches private channels, plus the sub-channels of any channel you add with `!cleaner add <channel>` (a "Squad Rooms" spacer, say). A channel counts as used whenever someone is in it; one seen for the first time counts as used then, so nothing goes until it has really sat empty for the whole period.
+
+```
+!cleaner preview         what would be removed right now (always try this first)
+!cleaner days 14         how long unused before removal (default 14)
+!cleaner on              let it remove them; it checks every hour
+!cleaner run             check now
+!cleaner off             nothing is removed
+```
+
+It never removes a channel with someone in it or one with sub-channels, and never touches the bot's channel, the home channel, the claim channel, the AFK Room, the jail, or the zones themselves. Removing needs the bot's group to be allowed to delete permanent channels.
+
 ### Jail, reports and meetings
 
 The `modtools` cog has three moderation tools. Add `"modtools"` to `cogs` and restart.
@@ -499,7 +519,7 @@ The `modtools` cog has three moderation tools. Add `"modtools"` to `cogs` and re
 !jailed                     who is in jail and for how long
 ```
 
-The person is moved to the jail channel and told why and for how long. If they leave, they're moved straight back (with a poke saying how long is left), and that survives disconnecting and reconnecting, because the jail list is kept in `data/state.json`. When the time is up they're told they can go. Bot admins can't be jailed. The longest allowed is `modtools.maxMinutes` (a week). If you use the AFK mover, add the jail channel to `community.afk.ignoreChannels` so the two don't take turns moving someone.
+The person is moved to the jail channel and told why and for how long. If they leave, they're moved straight back (with a poke saying how long is left), and that survives disconnecting and reconnecting, because the jail list is kept in `data/state.json`. When the time is up they're told they can go. Bot admins can't be jailed. The longest allowed is `modtools.maxMinutes` (a week). The AFK mover leaves people in the jail channel alone.
 
 **Reports.** Anyone can `!report <name> <what happened>`. Every staff member online (bot admins, and the [staff groups](#staff-online)) gets a poke and a private message with the details and which channel the person is in. If nobody is on, the report is saved. `!reports` (admins) shows the last 10, `!reports clear` empties the list. One report per person per minute (`modtools.reportCooldownSeconds`), and the last 100 are kept (`modtools.keepReports`).
 

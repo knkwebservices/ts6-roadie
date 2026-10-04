@@ -293,6 +293,28 @@ export class TeamspeakAdapter implements TsAdapter {
     throw new Error('the server did not report the new channel');
   }
 
+  async createPermanentChannel(opts: { name: string; parentId: bigint }): Promise<bigint> {
+    const c = this.#need();
+    const rows = await c.execCommandWithResponse(
+      buildCommand('channelcreate', { channel_name: opts.name, cpid: String(opts.parentId), channel_flag_permanent: '1' }),
+      10_000,
+    );
+    const fromReply = rows.map((r) => r['cid']).find((v) => v && /^\d+$/.test(v));
+    if (fromReply) return BigInt(fromReply);
+    const want = opts.name.trim().toLowerCase();
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+      const found = this.channels().find((ch) => ch.parentId === opts.parentId && ch.name.trim().toLowerCase() === want);
+      if (found) return found.id;
+      await sleep(100);
+    }
+    throw new Error('the server did not report the new channel');
+  }
+
+  async deleteChannel(channelId: bigint, force = false): Promise<void> {
+    await this.#need().execCommand(buildCommand('channeldelete', { cid: String(channelId), force: force ? '1' : '0' }), 10_000);
+  }
+
   async setChannelGroup(userId: number, channelId: bigint, channelGroupId: number): Promise<void> {
     const c = this.#need();
     const info = await getClientInfo(c, userId);
